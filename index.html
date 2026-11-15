@@ -602,6 +602,7 @@ function update(dt,t,light){
   school.x+=(school.tx-school.x)*dt*.25;school.y+=(school.ty-school.y)*dt*.25;
   SICK=pendingDoses().some(d=>d.due<=Date.now());const night=.45+.55*light,sick=SICK?.7:1;
   for(const f of S.fish){
+    if(!Number.isFinite(f.x)||!Number.isFinite(f.y)||!Number.isFinite(f.vx)||!Number.isFinite(f.vy))spawn(f);   // safety net: a lost fish swims back in
     const s=SPECIES[f.sp],L=fishLen(f);
     let spd=s.speed*42*U*night*sick*(f.full<20?.6:1),tgt=null,best=1e9;
     if(f.full<95){for(const p of pellets){const d=Math.hypot(p.x-f.x,p.y-f.y);if(d<best){best=d;tgt=p}}}
