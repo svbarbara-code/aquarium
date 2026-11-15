@@ -611,7 +611,8 @@ function bodyPath(L,Hh){
 }
 /* ---------- drawn fish (Higgsfield line-art sprites, facing right) ----------
    Each picture is trimmed to the fish, then drawn in thin vertical strips that wave like a swimming body. */
-const SPRITE_SRC={clownfish:'assets/fish-clownfish.png'};
+const SPRITE_SRC={clownfish:'assets/fish-clownfish.png',chromis:'assets/fish-chromis.png',gramma:'assets/fish-gramma.png',
+  yellowtang:'assets/fish-yellowtang.png',bluetang:'assets/fish-bluetang.png',firefish:'assets/fish-firefish.png',mandarin:'assets/fish-mandarin.png'};
 const SPRITES={};
 for(const k in SPRITE_SRC){const im=new Image();im.onload=()=>{SPRITES[k]=trimSprite(im)};im.src=SPRITE_SRC[k]}
 function trimSprite(im){                      // find the fish inside the transparent margin
