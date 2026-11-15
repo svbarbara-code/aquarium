@@ -148,7 +148,7 @@ if(!S.meals)S.meals=DEFAULT_MEALS.map(m=>({...m}));
 if(!S.mealCheck)S.mealCheck=Date.now();
 if(!S.cal)S.cal={url:'',calls:[],fetched:0,err:''};
 if(!S.popped)S.popped={};
-if(!S.meds)S.meds=[];if(!S.medLog)S.medLog=[];if(!S.medCheck)S.medCheck=Date.now();
+if(!S.meds)S.meds=[];if(!S.medLog)S.medLog=[];if(!S.outbox)S.outbox=[];if(!S.medCheck)S.medCheck=Date.now();
 for(const k in S.popped)if(Date.now()-S.popped[k]>3*864e5)delete S.popped[k];
 
 /* ---------- meal times: the fish get hungry when you're meant to eat ---------- */
@@ -190,7 +190,7 @@ async function fetchCalls(){
     if(Array.isArray(j.meds)&&j.meds.length&&!S.medsSeeded){      // one-time: your med list arrives with the private link
       S.medsSeeded=true;
       if(!S.meds.length){
-        S.meds=j.meds.filter(m=>m&&m.name&&/^\d\d:\d\d$/.test(m.time)).map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day})).sort((a,b)=>a.time.localeCompare(b.time));
+        S.meds=j.meds.filter(m=>m&&m.name&&/^\d\d:\d\d$/.test(m.time)).map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day,ref:m.ref||'',habit:m.habit||''})).sort((a,b)=>a.time.localeCompare(b.time));
         S.medCheck=Date.now();toast(`Added your ${S.meds.length} meds. Edit them in the Fish panel.`);
       }
       save();renderMedBtn();if(!panel.hidden)renderMeds();
@@ -262,7 +262,7 @@ function medOccurrences(from,to){
     if(m.day!=null&&m.day>=0&&d.getDay()!==+m.day)continue;
     const[hh,mm]=(m.time||'').split(':').map(Number);if(isNaN(hh))continue;
     const t=new Date(d);t.setHours(hh,mm||0,0,0);const ts=t.getTime();
-    if(ts>from&&ts<=to)out.push({id:m.id+'@'+ts,medId:m.id,name:m.name||'Medicine',due:ts});
+    if(ts>from&&ts<=to)out.push({id:m.id+'@'+ts,medId:m.id,name:m.name||'Medicine',due:ts,ref:m.ref||'',habit:m.habit||''});
   }
   return out.sort((a,b)=>a.due-b.due);
 }
@@ -271,8 +271,23 @@ function checkMeds(){
   const now=Date.now(),have=new Set(S.medLog.map(d=>d.id));
   for(const o of medOccurrences(S.medCheck,now))if(!have.has(o.id))S.medLog.push({...o,given:null,missed:false});
   S.medCheck=now;
-  for(const d of S.medLog)if(!d.given&&!d.missed&&now>missAt(d.due))d.missed=true;
+  for(const d of S.medLog)if(!d.given&&!d.missed&&now>missAt(d.due)){d.missed=true;queueDose(d)}
   S.medLog=S.medLog.filter(d=>now-d.due<60*864e5);
+}
+/* doses travel to the Saúde DB (and from there Pinky ticks the Life habit) through the private link */
+function queueDose(d){S.outbox=S.outbox.filter(x=>x.id!==d.id);S.outbox.push({id:d.id,name:d.name,due:d.due,given:d.given||null,ref:d.ref||'',habit:d.habit||''})}
+let flushing=false;
+async function flushOutbox(){
+  if(flushing||!S.cal.url||!S.outbox.length)return;flushing=true;
+  try{
+    while(S.outbox.length){
+      const batch=S.outbox.slice(0,12);
+      const r=await fetch(S.cal.url+(S.cal.url.includes('?')?'&':'?')+'action=log&doses='+encodeURIComponent(JSON.stringify(batch))+'&_='+Date.now());
+      const j=await r.json();if(!j.ok)throw new Error(j.error||'log failed');
+      const ok=new Set(j.ids||[]);S.outbox=S.outbox.filter(x=>!ok.has(x.id));S.lastSync=Date.now();save();
+      if(!ok.size)break;
+    }
+  }catch(e){S.syncErr=String(e.message||e)}finally{flushing=false;if(!panel.hidden)renderMeds()}
 }
 function pendingDoses(){return S.medLog.filter(d=>!d.given&&!d.missed).sort((a,b)=>a.due-b.due)}
 function overdueDose(){const n=Date.now();return S.medLog.some(d=>!d.given&&!d.missed&&n-d.due>2*36e5)}
@@ -280,8 +295,8 @@ function upcomingDose(){const n=Date.now(),have=new Set(S.medLog.map(d=>d.id));r
 let capsule=null,sparks=[],SICK=false,pillBubble=null,tipTimer=null;
 function giveDoses(list){
   const now=Date.now();
-  for(const d of list){if(!S.medLog.includes(d))S.medLog.push(d);d.given=now;d.missed=false}
-  save();
+  for(const d of list){if(!S.medLog.includes(d))S.medLog.push(d);d.given=now;d.missed=false;queueDose(d)}
+  save();flushOutbox();
   capsule={x:W*(.35+Math.random()*.3),y:-30*U,vy:70*U,rot:Math.random()*6};
   toast(list.length>1?`Logged ${list.length} meds at ${fmtClock(now)}`:`Logged: ${list[0].name} at ${fmtClock(now)}`);
   renderMedBtn();if(!panel.hidden)renderMeds();
@@ -576,7 +591,7 @@ function frame(now){
   const dt=Math.min(.05,(now-lastT)/1000);lastT=now;const t=now/1000;
   simulate(dt/3600*SIM);saveClock+=dt;uiClock+=dt;
   if(saveClock>5){saveClock=0;save()}
-  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();checkMeds();renderMedBtn();updateBubble();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
+  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();checkMeds();renderMedBtn();updateBubble();if(S.outbox.length&&calClock%60===0)flushOutbox();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
   const light=lightLevel();update(dt,t,light);draw(t,light);
   requestAnimationFrame(frame);
 }
@@ -739,7 +754,7 @@ function renderMeds(){
   box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish and one thinks of a pill. Take yours, then tap that fish to give theirs (hold it to see which meds). Stays on this iPad only.</p>`+
   S.meds.map((m,i)=>`<div class="mrow mrow4"><input data-mi="${i}" data-mk="name" value="${esc(m.name)}" maxlength="28" placeholder="Medicine" aria-label="Medicine name"><input type="time" data-mi="${i}" data-mk="time" value="${esc(m.time)}" aria-label="Dose time"><select data-mi="${i}" data-mk="day" aria-label="Which days">${DAYS.map((n,k)=>`<option value="${k-1}"${(m.day==null?-1:+m.day)===k-1?' selected':''}>${n}</option>`).join('')}</select><button class="x" data-mdel="${i}" aria-label="Remove dose">×</button></div>`).join('')+
   `<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="add" id="addMed">Add a med</button><button class="add" id="impMed">Import setup code</button></div><div id="impBox" hidden><textarea id="impText" rows="3" placeholder="Paste the AQMEDS: setup code here" style="width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:8px;-webkit-user-select:text;user-select:text"></textarea><button class="add" id="impGo">Replace my med list with this</button><p class="stat err" id="impErr"></p></div>`+
-  (S.meds.length?`<div class="mlog">${done+miss?`Last 7 days: <b style="color:var(--ink)">${Math.round(done/(done+miss)*100)}%</b> given (${done} of ${done+miss}).`:'No doses logged yet.'}`+
+  (S.meds.length?`<div class="mlog"><p style="margin:0 0 6px">${!S.cal.url?'Connect your calendar link below to also save doses to your Saúde DB and Pinky.':S.outbox.length?`⏳ ${S.outbox.length} dose${S.outbox.length>1?'s':''} waiting to reach your Saúde DB and Pinky.`:S.lastSync?`✓ Saved to your Saúde DB and Pinky (${fmtClock(S.lastSync)}).`:'Doses you give are saved to your Saúde DB and Pinky.'}</p>${done+miss?`Last 7 days: <b style="color:var(--ink)">${Math.round(done/(done+miss)*100)}%</b> given (${done} of ${done+miss}).`:'No doses logged yet.'}`+
    days.map(day=>{const ds=S.medLog.filter(d=>d.due>=day&&d.due<day+864e5).sort((a,b)=>a.due-b.due);if(!ds.length)return '';
      const lbl=day===days[0]?'Today':day===days[1]?'Yesterday':new Date(day).toLocaleDateString([], {weekday:'short',day:'numeric'});
      return `<div class="day"><b>${lbl}</b>${ds.map(chip).join('')}</div>`}).join('')+`</div>`:'');
@@ -795,11 +810,11 @@ function toast(msg){toastEl.textContent=msg;toastEl.classList.add('on');clearTim
 /* ---------- keep the screen on ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock'in navigator&&!lock&&document.visibilityState==='visible'){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();checkMeds();renderMedBtn();fetchCalls();wake()}else save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();checkMeds();renderMedBtn();fetchCalls();flushOutbox();wake()}else save()});
 addEventListener('pagehide',save);
 
 /* ---------- start ---------- */
-catchUp();checkMeals();checkMeds();fetchCalls();
+catchUp();checkMeals();checkMeds();fetchCalls();flushOutbox();
 addEventListener('resize',resize);resize();
 school.x=W/2;school.y=H*.45;
 renderStats();renderMealBanner();renderMedBtn();poke();
