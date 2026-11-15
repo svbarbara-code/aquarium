@@ -624,7 +624,7 @@ function trimSprite(im){                      // find the fish inside the transp
   return {im,sx:x0,sy:y0,sw:x1-x0+2,sh:y1-y0+2};
 }
 /* turn-around clips (Higgsfield video → frames): right-facing → head-on → left-facing; mirrored for the other way */
-const TURN_SRC={clownfish:{src:'assets/turn-clownfish.png',frames:17}};
+const TURN_SRC={clownfish:{src:'assets/turn-clownfish.png',frames:17},chromis:{src:'assets/turn-chromis.png',frames:11},gramma:{src:'assets/turn-gramma.png',frames:10}};
 const TURNS={},TURN_TIME=.75;
 for(const k in TURN_SRC){const im=new Image();im.onload=()=>{TURNS[k]={im,n:TURN_SRC[k].frames,fw:im.naturalWidth/TURN_SRC[k].frames,fh:im.naturalHeight}};im.src=TURN_SRC[k].src}
 const spriteBuf=document.createElement('canvas'),sbg=spriteBuf.getContext('2d');
