@@ -40,6 +40,7 @@ button:active{transform:scale(.97)}
 .rn{background:none;border:0;padding:0 0 0 6px;color:var(--soft);font-size:12px;text-decoration:underline;-webkit-backdrop-filter:none;backdrop-filter:none}
 .next{border-top:1px solid var(--line);padding-top:12px;margin-top:4px;font-size:13px;color:var(--soft)}
 .help{font-size:12.5px;color:var(--soft);margin-top:10px;line-height:1.55}
+#calBox .stat{font-size:13px;color:var(--soft);margin:4px 0 8px}#calBox .err{color:var(--bad)}#calBox .btns{display:flex;gap:8px;margin-top:6px}#calBox button{font-size:13px;padding:7px 14px}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translate(-50%,20px);padding:12px 20px;font-size:15px;opacity:0;transition:opacity .4s,transform .4s;pointer-events:none;white-space:nowrap}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 #meal{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 70px);transform:translate(-50%,-10px);padding:12px 22px;font-size:16px;text-align:center;opacity:0;transition:opacity .6s,transform .6s;pointer-events:none;background:rgba(6,22,40,.7)}
@@ -59,7 +60,7 @@ button:active{transform:scale(.97)}
   <div id="stats" class="glass"></div>
   <button id="fishBtn">Fish</button>
 </div>
-<div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div></div>
+<div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div><div id="calBox" class="meals"></div></div>
 <div id="meal" class="glass"></div>
 <div id="hint" class="glass">Tap to feed · swipe across the glass to clean</div>
 <div id="toast" class="glass"></div>
@@ -69,6 +70,7 @@ button:active{transform:scale(.97)}
 const Q = new URLSearchParams(location.search);
 const SIM = Math.max(1, +Q.get('speed') || 1);          // test: ?speed=360 → 1 real second = 6 sim minutes
 const HOUR_OVERRIDE = Q.has('hour') ? +Q.get('hour') : null; // test: ?hour=22
+const TEST_CALL = Q.has('testcall');                     // test: ?testcall → fake call starting in ~4 min
 const KEY = 'aquarium.v1';
 const DEFAULT_MEALS = [{label:'Breakfast',time:'08:00'},{label:'Lunch',time:'12:30'},{label:'Snack',time:'16:00'},{label:'Dinner',time:'19:30'}];
 const MEAL_HUNGER = 15;   // at each meal time every fish drops to this "full" level
@@ -127,6 +129,9 @@ function catchUp(){
 }
 if(!S.meals)S.meals=DEFAULT_MEALS.map(m=>({...m}));
 if(!S.mealCheck)S.mealCheck=Date.now();
+if(!S.cal)S.cal={url:'',calls:[],fetched:0,err:''};
+if(!S.popped)S.popped={};
+for(const k in S.popped)if(Date.now()-S.popped[k]>3*864e5)delete S.popped[k];
 
 /* ---------- meal times: the fish get hungry when you're meant to eat ---------- */
 function mealOccurrences(from,to){
@@ -153,6 +158,75 @@ function renderMealBanner(){
   const on=m&&Date.now()-m.at<2*36e5&&avg<55;
   if(on){mealEl.innerHTML=`${esc(m.label)} time! Your fish are hungry, and so are you.<small>Go eat something, then tap the water to feed them.</small>`;if(!S.seen)hint.style.opacity=0}
   mealEl.classList.toggle('on',!!on&&panel.hidden);
+}
+/* ---------- calls from Google Calendar: a bubble to pop 5 min before each call ---------- */
+const CALL_LEAD=5*60e3;
+const testCalls=TEST_CALL?[{id:'test-'+Date.now(),title:'Test call: DRC pipeline review',start:Date.now()+4*60e3+20e3,end:Date.now()+34*60e3}]:[];
+function allCalls(){return S.cal.calls.concat(testCalls)}
+async function fetchCalls(){
+  if(!S.cal.url)return;
+  try{
+    const r=await fetch(S.cal.url+(S.cal.url.includes('?')?'&':'?')+'_='+Date.now());
+    const j=await r.json();if(j.error)throw new Error(j.error);
+    S.cal.calls=(j.calls||[]).filter(c=>c&&c.id&&c.start&&c.end);S.cal.fetched=Date.now();S.cal.err='';save();
+  }catch(e){S.cal.err=String(e.message)==='unauthorized'?'The calendar link has the wrong key.':'Could not reach your calendar. Check the link or your connection.'}
+  if(!panel.hidden)renderCal();
+}
+function nextCall(){const n=Date.now();return allCalls().filter(c=>!S.popped[c.id]&&c.start>n&&c.start-n<12*36e5).sort((a,b)=>a.start-b.start)[0]}
+function dueCall(){const n=Date.now();return allCalls().filter(c=>!S.popped[c.id]&&n>=c.start-CALL_LEAD&&n<c.end).sort((a,b)=>a.start-b.start)[0]}
+let bubble=null,popFx=[],ring=null,actx=null;
+function updateBubble(){
+  const c=dueCall();
+  if(!c){bubble=null;return}
+  if(!bubble||bubble.call.id!==c.id){bubble={call:c,x:W*.5,y:-Math.min(W,H)*.25,vy:0,r:Math.min(W,H)*.2,p:Math.random()*6};chime()}
+}
+function tone(f0,f1,dur,vol){
+  try{if(!actx||actx.state!=='running')return;const o=actx.createOscillator(),g=actx.createGain(),t0=actx.currentTime;
+    o.type='sine';o.frequency.setValueAtTime(f0,t0);o.frequency.exponentialRampToValueAtTime(f1,t0+dur);
+    g.gain.setValueAtTime(vol,t0);g.gain.exponentialRampToValueAtTime(.001,t0+dur+.03);o.connect(g).connect(actx.destination);o.start(t0);o.stop(t0+dur+.05)}catch(e){}
+}
+function unlockAudio(){try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();if(actx.state!=='running')actx.resume()}catch(e){}}
+function chime(){tone(320,640,.25,.12);setTimeout(()=>tone(480,960,.3,.1),180)}
+function popBubble(){
+  const b=bubble;S.popped[b.call.id]=Date.now();save();
+  for(let i=0;i<46;i++){const a=Math.random()*Math.PI*2,sp=(120+Math.random()*380)*U;popFx.push({x:b.x+Math.cos(a)*b.r*.95,y:b.y+Math.sin(a)*b.r*.95,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,r:(1.5+Math.random()*4)*U})}
+  ring={x:b.x,y:b.y,r:b.r,life:1};bubble=null;
+  tone(900,140,.12,.35);toast('Have a good call!');
+}
+function wrapText(txt,maxW){
+  const words=txt.split(/\s+/),lines=[];let cur='';
+  for(const w of words){const t=cur?cur+' '+w:w;if(c.measureText(t).width>maxW&&cur){lines.push(cur);cur=w}else cur=t}
+  if(cur)lines.push(cur);
+  if(lines.length>2){lines.length=2;while(c.measureText(lines[1]+'…').width>maxW&&lines[1].length>1)lines[1]=lines[1].slice(0,-1);lines[1]+='…'}
+  return lines;
+}
+function drawBubble(t){
+  const b=bubble;if(!b)return;const r=b.r,wob=Math.sin(t*2.1+b.p)*.035;
+  c.save();c.translate(b.x,b.y);
+  c.save();c.scale(1+wob,1-wob);
+  let g=c.createRadialGradient(-r*.3,-r*.35,r*.05,0,0,r);
+  g.addColorStop(0,'rgba(255,255,255,.22)');g.addColorStop(.65,'rgba(150,215,255,.12)');g.addColorStop(.9,'rgba(200,170,255,.30)');g.addColorStop(1,'rgba(255,255,255,.6)');
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,7);c.fill();
+  c.lineWidth=3*U;c.strokeStyle=`hsla(${(t*45)%360},90%,82%,.6)`;c.beginPath();c.arc(0,0,r*.985,0,7);c.stroke();
+  c.lineWidth=2*U;c.strokeStyle=`hsla(${(t*45+150)%360},90%,82%,.35)`;c.beginPath();c.arc(0,0,r*.95,.4,2.6);c.stroke();
+  c.fillStyle='rgba(255,255,255,.8)';c.beginPath();c.ellipse(-r*.45,-r*.52,r*.2,r*.08,-.7,0,7);c.fill();
+  c.beginPath();c.arc(-r*.2,-r*.7,r*.035,0,7);c.fill();
+  c.restore();
+  const mins=Math.ceil((b.call.start-Date.now())/60e3);
+  c.textAlign='center';c.textBaseline='middle';c.shadowColor='rgba(0,20,40,.65)';c.shadowBlur=8*U;
+  c.fillStyle='#fff';c.font=`600 ${r*.15}px -apple-system,system-ui,sans-serif`;
+  c.fillText(mins>0?`Call in ${mins} min`:'Your call has started',0,-r*.3);
+  c.font=`500 ${r*.115}px -apple-system,system-ui,sans-serif`;
+  wrapText(b.call.title,r*1.5).forEach((ln,i)=>c.fillText(ln,0,-r*.06+i*r*.15));
+  c.fillStyle='rgba(238,246,251,.85)';c.font=`${r*.1}px -apple-system,system-ui,sans-serif`;
+  c.fillText(fmtClock(b.call.start)+' – '+fmtClock(b.call.end),0,r*.36);
+  c.fillStyle='rgba(238,246,251,.7)';c.font=`${r*.08}px -apple-system,system-ui,sans-serif`;
+  c.fillText('Tap to pop',0,r*.56);
+  c.restore();
+}
+function drawPop(){
+  if(ring){c.strokeStyle=`rgba(255,255,255,${ring.life*.6})`;c.lineWidth=4*U*ring.life;c.beginPath();c.arc(ring.x,ring.y,ring.r*(1.35-ring.life*.35),0,7);c.stroke()}
+  for(const d of popFx){c.fillStyle=`rgba(225,245,255,${d.life*.85})`;c.beginPath();c.arc(d.x,d.y,d.r,0,7);c.fill()}
 }
 function mood(f){
   if(f.full<20) return ['Hungry','var(--bad)'];
@@ -390,12 +464,12 @@ function drawPattern(s,L,Hh,t){
 }
 
 /* ---------- main loop ---------- */
-let lastT=performance.now(),saveClock=0,uiClock=0;
+let lastT=performance.now(),saveClock=0,uiClock=0,calClock=0;
 function frame(now){
   const dt=Math.min(.05,(now-lastT)/1000);lastT=now;const t=now/1000;
   simulate(dt/3600*SIM);saveClock+=dt;uiClock+=dt;
   if(saveClock>5){saveClock=0;save()}
-  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
+  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();updateBubble();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
   const light=lightLevel();update(dt,t,light);draw(t,light);
   requestAnimationFrame(frame);
 }
@@ -439,6 +513,9 @@ function update(dt,t,light){
   for(const b of bubbles){b.y-=(40+b.r*12)*U*dt;b.x+=Math.sin(t*3+b.p)*10*U*dt;if(b.y<H*.04)b.gone=true}
   bubbles=bubbles.filter(b=>!b.gone);
   wipes=wipes.filter(w=>t-w.t<.9);
+  if(bubble){const ty=H*.44;bubble.r=Math.min(W,H)*.2;bubble.vy=(bubble.vy+(ty-bubble.y)*7*dt)*Math.pow(.08,dt);bubble.y+=bubble.vy*dt+Math.sin(t*1.3+bubble.p)*8*U*dt;bubble.x=W*.5+Math.sin(t*.45+bubble.p)*W*.07}
+  for(const d of popFx){d.x+=d.vx*dt;d.y+=d.vy*dt;d.vx*=1-dt*3;d.vy=d.vy*(1-dt*3)+40*U*dt;d.life-=dt*1.6}
+  popFx=popFx.filter(d=>d.life>0);if(ring){ring.life-=dt*3;if(ring.life<=0)ring=null}
 }
 function draw(t,light){
   c.setTransform(DPR,0,0,DPR,0,0);
@@ -485,22 +562,26 @@ function draw(t,light){
     const gr=c.createRadialGradient(W*.7,-H*.1,0,W*.7,-H*.1,H*.9);gr.addColorStop(0,`rgba(120,150,220,${(1-light)*.12})`);gr.addColorStop(1,'rgba(120,150,220,0)');c.fillStyle=gr;c.fillRect(0,0,W,H)}
   // glass reflection
   const gr=c.createLinearGradient(0,0,W*.4,H*.5);gr.addColorStop(0,'rgba(255,255,255,.05)');gr.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=gr;c.fillRect(0,0,W,H);
+  drawBubble(t);drawPop();
 }
 
 /* ---------- input ---------- */
 let down=null;
-cv.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,t:performance.now(),dist:0};wake();poke()});
+cv.addEventListener('pointerdown',e=>{
+  down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,t:performance.now(),dist:0};wake();poke();unlockAudio();
+  if(bubble&&Math.hypot(e.clientX-bubble.x,e.clientY-bubble.y)<bubble.r*1.05){down.popped=true;popBubble()}
+});
 cv.addEventListener('pointermove',e=>{
   if(!down)return;
   const d=Math.hypot(e.clientX-down.lx,e.clientY-down.ly);down.dist+=d;
-  if(down.dist>28&&d>0){
+  if(down.dist>28&&d>0&&!down.popped){
     S.dirt=Math.max(0,S.dirt-d/W*32);
     wipes.push({x0:down.lx,y0:down.ly,x1:e.clientX,y1:e.clientY,t:performance.now()/1000});
     pellets=pellets.filter(p=>!(p.landed&&Math.hypot(p.x-e.clientX,p.y-e.clientY)<40*U));
   }
   down.lx=e.clientX;down.ly=e.clientY;
 });
-const up=e=>{if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
+const up=e=>{if(down&&down.popped){down=null;return}if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
 cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',()=>down=null);
 
 /* ---------- UI ---------- */
@@ -514,7 +595,8 @@ function fmtH(h){h=Math.max(0,h);return h<1?Math.ceil(h*60)+' min':h<48?Math.cei
 function renderStats(){
   const water=Math.round(100-S.dirt),avg=S.fish.reduce((a,f)=>a+f.full,0)/S.fish.length;
   const wc=water>60?'var(--good)':water>35?'var(--warn)':'var(--bad)',fc=avg>50?'var(--good)':avg>20?'var(--warn)':'var(--bad)';
-  stats.innerHTML=`<span><span class="dot" style="background:${wc}"></span>Water <b>${water}%</b></span><span><span class="dot" style="background:${fc}"></span>Fed <b>${Math.round(avg)}%</b></span><span>Fish <b>${S.fish.length}</b></span>`;
+  const nc=nextCall();
+  stats.innerHTML=`<span><span class="dot" style="background:${wc}"></span>Water <b>${water}%</b></span><span><span class="dot" style="background:${fc}"></span>Fed <b>${Math.round(avg)}%</b></span><span>Fish <b>${S.fish.length}</b></span>${nc?`<span>Next call <b>${fmtClock(nc.start)}</b></span>`:''}`;
 }
 function bar(v,col){return `<div class="bar"><i style="width:${Math.round(v)}%;background:${col}"></i></div>`}
 function fmtClock(ts){const d=new Date(ts);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false})}
@@ -531,9 +613,23 @@ function renderMeals(){
   S.meals.map((m,i)=>`<div class="mrow"><input data-i="${i}" data-k="label" value="${esc(m.label)}" maxlength="20" aria-label="Meal name"><input type="time" data-i="${i}" data-k="time" value="${esc(m.time)}" aria-label="Meal time"><button class="x" data-del="${i}" aria-label="Remove meal">×</button></div>`).join('')+
   `<button class="add" id="addMeal">Add a meal</button>`;
 }
+function renderCal(){
+  const box=document.getElementById('calBox'),nc=nextCall()||dueCall();
+  box.innerHTML=`<h3>Calls from Google Calendar</h3>`+(S.cal.url?
+    `<p class="stat">Connected. ${nc?`Next call: <b style="color:var(--ink)">${esc(nc.title)}</b> at ${fmtClock(nc.start)}.`:'No calls in the next 12 hours.'} A bubble rises 5 minutes before each call: pop it to say you're ready.</p>${S.cal.err?`<p class="stat err">${esc(S.cal.err)}</p>`:''}
+     <div class="btns"><button id="calRefresh">Refresh now</button><button id="calOff">Disconnect</button></div>`:
+    `<p class="stat">Paste your private calendar link to get a bubble 5 minutes before each call.</p>
+     <input id="calUrl" placeholder="https://script.google.com/macros/s/…/exec?key=…" autocomplete="off" autocapitalize="off" spellcheck="false">
+     ${S.cal.err?`<p class="stat err">${esc(S.cal.err)}</p>`:''}<div class="btns"><button id="calOn">Connect</button></div>`);
+}
 function esc(s){return String(s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))}
 panel.addEventListener('click',e=>{
   const t=e.target;
+  if(t.id==='calOn'){const v=document.getElementById('calUrl').value.trim();
+    if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){S.cal.err='That doesn\'t look like the calendar link. It starts with https://script.google.com/';renderCal();return}
+    S.cal.url=v;S.cal.err='';save();t.textContent='Connecting…';fetchCalls().then(()=>{if(S.cal.err){S.cal.url=''}save();renderCal();renderStats()});return}
+  if(t.id==='calOff'){S.cal={url:'',calls:[],fetched:0,err:''};save();renderCal();renderStats();return}
+  if(t.id==='calRefresh'){t.textContent='Refreshing…';fetchCalls().then(()=>{renderCal();renderStats()});return}
   if(t.id==='addMeal'){S.meals.push({label:'Meal',time:'10:00'});save();renderMeals();return}
   if(t.dataset&&t.dataset.del!=null){S.meals.splice(+t.dataset.del,1);save();renderMeals();renderPanel();return}
   const id=t.dataset&&t.dataset.id;if(!id)return;
@@ -547,18 +643,18 @@ panel.addEventListener('change',e=>{
   S.meals.sort((a,b)=>a.time.localeCompare(b.time));
   S.mealCheck=Date.now();save();renderMeals();renderPanel();
 });
-document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals()}renderMealBanner();poke()});
+document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals();renderCal()}renderMealBanner();poke()});
 let toastTimer;
 function toast(msg){toastEl.textContent=msg;toastEl.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.classList.remove('on'),4500)}
 
 /* ---------- keep the screen on ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock'in navigator&&!lock&&document.visibilityState==='visible'){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();wake()}else save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();fetchCalls();wake()}else save()});
 addEventListener('pagehide',save);
 
 /* ---------- start ---------- */
-catchUp();checkMeals();
+catchUp();checkMeals();fetchCalls();
 addEventListener('resize',resize);resize();
 school.x=W/2;school.y=H*.45;
 renderStats();renderMealBanner();poke();
