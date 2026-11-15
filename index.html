@@ -26,7 +26,7 @@ canvas{position:fixed;inset:0;width:100vw;height:100vh;touch-action:none;display
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
 button{font:inherit;color:var(--ink);background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:9px 16px;cursor:pointer;pointer-events:auto;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
 button:active{transform:scale(.97)}
-#panel{background:rgba(6,22,40,.78);position:fixed;top:calc(env(safe-area-inset-top) + 64px);right:calc(env(safe-area-inset-right) + 16px);width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;padding:16px;transition:opacity .25s,transform .25s}
+#panel{background:rgba(6,22,40,.78);position:fixed;top:calc(env(safe-area-inset-top) + 64px);right:calc(env(safe-area-inset-right) + 16px);width:min(440px,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;padding:16px;transition:opacity .25s,transform .25s}
 #panel[hidden]{display:block;opacity:0;transform:translateY(-8px);pointer-events:none}
 #panel h2{font-size:17px;font-weight:600;margin:0 0 4px}
 #panel .sub{color:var(--soft);font-size:12.5px;margin:0 0 12px}
@@ -41,6 +41,15 @@ button:active{transform:scale(.97)}
 .next{border-top:1px solid var(--line);padding-top:12px;margin-top:4px;font-size:13px;color:var(--soft)}
 .help{font-size:12.5px;color:var(--soft);margin-top:10px;line-height:1.55}
 #calBox .stat{font-size:13px;color:var(--soft);margin:4px 0 8px}#calBox .err{color:var(--bad)}#calBox .btns{display:flex;gap:8px;margin-top:6px}#calBox button{font-size:13px;padding:7px 14px}
+#medBtn{position:fixed;left:calc(env(safe-area-inset-left) + 16px);bottom:calc(env(safe-area-inset-bottom) + 20px);padding:12px 18px;font-size:16px;background:rgba(40,20,60,.62);border-color:rgba(255,190,240,.45);text-align:left;line-height:1.25;animation:medPulse 2.4s ease-in-out infinite}
+#medBtn small{display:block;font-size:12px;color:var(--soft)}
+#medBtn[hidden]{display:none}
+@keyframes medPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,170,230,.0)}50%{box-shadow:0 0 0 8px rgba(255,170,230,.18)}}
+.mlog{font-size:12.5px;color:var(--soft);margin-top:8px}
+.mlog .day{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px solid rgba(255,255,255,.07)}
+.mlog .day b{width:58px;font-weight:500;color:var(--ink)}
+.chip{padding:2px 8px;border-radius:9px;font-size:11.5px}
+.chip.ok{background:rgba(127,224,176,.16);color:var(--good)}.chip.miss{background:rgba(255,138,122,.16);color:var(--bad)}.chip.wait{background:rgba(255,201,107,.16);color:var(--warn)}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translate(-50%,20px);padding:12px 20px;font-size:15px;opacity:0;transition:opacity .4s,transform .4s;pointer-events:none;white-space:nowrap}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 #meal{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 70px);transform:translate(-50%,-10px);padding:12px 22px;font-size:16px;text-align:center;opacity:0;transition:opacity .6s,transform .6s;pointer-events:none;background:rgba(6,22,40,.7)}
@@ -49,6 +58,7 @@ button:active{transform:scale(.97)}
 .meals h3{font-size:15px;font-weight:600;margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--line)}
 .mrow{display:grid;grid-template-columns:1fr 110px 34px;gap:8px;margin:6px 0}
 .meals input{font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:7px 10px;width:100%;-webkit-user-select:text;user-select:text;color-scheme:dark}
+.meals .mrow4{grid-template-columns:1fr 92px 70px 32px;gap:6px}.meals select{font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:7px 6px;width:100%;color-scheme:dark}
 .meals .x{padding:0;border-radius:10px}
 .meals .add{margin-top:6px;font-size:13px;padding:7px 14px}
 #hint{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translateX(-50%);padding:10px 18px;font-size:14px;color:var(--soft);transition:opacity 1s;pointer-events:none}
@@ -60,7 +70,8 @@ button:active{transform:scale(.97)}
   <div id="stats" class="glass"></div>
   <button id="fishBtn">Fish</button>
 </div>
-<div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div><div id="calBox" class="meals"></div></div>
+<div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div><div id="medBox" class="meals"></div><div id="calBox" class="meals"></div></div>
+<button id="medBtn" hidden></button>
 <div id="meal" class="glass"></div>
 <div id="hint" class="glass">Tap to feed · swipe across the glass to clean</div>
 <div id="toast" class="glass"></div>
@@ -112,7 +123,7 @@ function simulate(h){
     if(f.full>=40 && S.dirt<60) f.growth=Math.min(1,f.growth+RATE.growth*h);
   }
   S.dirt=Math.min(100,S.dirt+RATE.dirt*h);
-  if(fullSum/S.fish.length>=40 && S.dirt<50){
+  if(fullSum/S.fish.length>=40 && S.dirt<50 && !overdueDose()){
     S.care+=h;
     for(const u of UNLOCKS){
       if(S.care>=u.at && !S.unlocked.includes(u.sp)){
@@ -131,6 +142,7 @@ if(!S.meals)S.meals=DEFAULT_MEALS.map(m=>({...m}));
 if(!S.mealCheck)S.mealCheck=Date.now();
 if(!S.cal)S.cal={url:'',calls:[],fetched:0,err:''};
 if(!S.popped)S.popped={};
+if(!S.meds)S.meds=[];if(!S.medLog)S.medLog=[];if(!S.medCheck)S.medCheck=Date.now();
 for(const k in S.popped)if(Date.now()-S.popped[k]>3*864e5)delete S.popped[k];
 
 /* ---------- meal times: the fish get hungry when you're meant to eat ---------- */
@@ -228,7 +240,61 @@ function drawPop(){
   if(ring){c.strokeStyle=`rgba(255,255,255,${ring.life*.6})`;c.lineWidth=4*U*ring.life;c.beginPath();c.arc(ring.x,ring.y,ring.r*(1.35-ring.life*.35),0,7);c.stroke()}
   for(const d of popFx){c.fillStyle=`rgba(225,245,255,${d.life*.85})`;c.beginPath();c.arc(d.x,d.y,d.r,0,7);c.fill()}
 }
+/* ---------- meds: give the fish their medicine when you take yours ---------- */
+const MED_EARLY=60*60e3;
+function medOccurrences(from,to){
+  const out=[];const d=new Date(from);d.setHours(0,0,0,0);
+  for(;d.getTime()<=to;d.setDate(d.getDate()+1))for(const m of S.meds){
+    if(m.day!=null&&m.day>=0&&d.getDay()!==+m.day)continue;
+    const[hh,mm]=(m.time||'').split(':').map(Number);if(isNaN(hh))continue;
+    const t=new Date(d);t.setHours(hh,mm||0,0,0);const ts=t.getTime();
+    if(ts>from&&ts<=to)out.push({id:m.id+'@'+ts,medId:m.id,name:m.name||'Medicine',due:ts});
+  }
+  return out.sort((a,b)=>a.due-b.due);
+}
+function missAt(due){const e=new Date(due);e.setHours(23,59,59,999);return Math.max(e.getTime(),due+4*36e5)}
+function checkMeds(){
+  const now=Date.now(),have=new Set(S.medLog.map(d=>d.id));
+  for(const o of medOccurrences(S.medCheck,now))if(!have.has(o.id))S.medLog.push({...o,given:null,missed:false});
+  S.medCheck=now;
+  for(const d of S.medLog)if(!d.given&&!d.missed&&now>missAt(d.due))d.missed=true;
+  S.medLog=S.medLog.filter(d=>now-d.due<60*864e5);
+}
+function pendingDoses(){return S.medLog.filter(d=>!d.given&&!d.missed).sort((a,b)=>a.due-b.due)}
+function overdueDose(){const n=Date.now();return S.medLog.some(d=>!d.given&&!d.missed&&n-d.due>2*36e5)}
+function upcomingDose(){const n=Date.now(),have=new Set(S.medLog.map(d=>d.id));return medOccurrences(n,n+MED_EARLY).find(o=>!have.has(o.id))}
+let capsule=null,sparks=[];
+function giveDoses(list){
+  const now=Date.now();
+  for(const d of list){if(!S.medLog.includes(d))S.medLog.push(d);d.given=now;d.missed=false}
+  save();
+  capsule={x:W*(.35+Math.random()*.3),y:-30*U,vy:70*U,rot:Math.random()*6};
+  toast(list.length>1?`Logged ${list.length} meds at ${fmtClock(now)}`:`Logged: ${list[0].name} at ${fmtClock(now)}`);
+  renderMedBtn();if(!panel.hidden)renderMeds();
+}
+const medBtn=document.getElementById('medBtn');
+function renderMedBtn(){
+  const p=pendingDoses();let group;
+  if(p.length)group=p.filter(d=>d.due===p[0].due);
+  else{const u=upcomingDose();if(u){const have=new Set(S.medLog.map(d=>d.id));group=medOccurrences(u.due-1,u.due).filter(o=>!have.has(o.id)).map(o=>({...o,given:null,missed:false}))}}
+  if(!group||!group.length){medBtn.hidden=true;medBtn._doses=null;return}
+  medBtn.hidden=false;const d=group[0],early=d.due>Date.now(),late=p.length>group.length?` · ${p.length-group.length} more after`:'';
+  const names=group.map(x=>x.name).join(', ');
+  medBtn.innerHTML=`💊 ${group.length>1?`Give ${fmtClock(d.due)} meds`:`Give ${esc(d.name)}`}<small>${group.length>1?esc(names)+' · ':''}${early?'Due':'Was due'} ${fmtClock(d.due)}${early?' · you can give it now':''}${late}</small>`;
+  medBtn._doses=group;
+}
+medBtn.addEventListener('click',()=>{const g=medBtn._doses;if(g&&g.length){poke();unlockAudio();tone(660,990,.18,.18);giveDoses(g)}});
+function drawMeds(t){
+  for(const f of S.fish){if(!(f.glow>0))continue;const L=fishLen(f);
+    for(let k=0;k<5;k++){const a=t*2.2+k*1.26+f.ph*.1;c.fillStyle=`rgba(255,215,245,${Math.min(1,f.glow/3)*.75})`;c.beginPath();c.arc(f.x+Math.cos(a)*L*.7,f.y+Math.sin(a)*L*.45,(1.6+Math.sin(t*6+k))*U+1,0,7);c.fill()}}
+  for(const p of sparks){c.fillStyle=`hsla(${p.h},90%,80%,${p.life})`;c.beginPath();c.arc(p.x,p.y,p.r,0,7);c.fill()}
+  if(capsule){const k=capsule;c.save();c.translate(k.x,k.y);c.rotate(k.rot);const w=16*U,h=7*U;
+    c.fillStyle='#f7f2ff';c.beginPath();c.roundRect?c.roundRect(-w,-h,w,h*2,h):c.rect(-w,-h,w,h*2);c.fill();
+    c.fillStyle='#e05a9c';c.beginPath();c.roundRect?c.roundRect(0,-h,w,h*2,h):c.rect(0,-h,w,h*2);c.fill();
+    c.fillStyle='rgba(255,255,255,.6)';c.fillRect(-w*.7,-h*.6,w*1.3,h*.35);c.restore()}
+}
 function mood(f){
+  if(overdueDose()) return ['Waiting for medicine','var(--warn)'];
   if(f.full<20) return ['Hungry','var(--bad)'];
   if(S.dirt>60) return ['Water is murky','var(--warn)'];
   if(f.full>70&&S.dirt<30) return ['Happy','var(--good)'];
@@ -469,7 +535,7 @@ function frame(now){
   const dt=Math.min(.05,(now-lastT)/1000);lastT=now;const t=now/1000;
   simulate(dt/3600*SIM);saveClock+=dt;uiClock+=dt;
   if(saveClock>5){saveClock=0;save()}
-  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();updateBubble();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
+  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();checkMeds();renderMedBtn();updateBubble();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
   const light=lightLevel();update(dt,t,light);draw(t,light);
   requestAnimationFrame(frame);
 }
@@ -478,10 +544,10 @@ function update(dt,t,light){
   school.timer-=dt;
   if(school.timer<=0){school.tx=W*.15+Math.random()*W*.7;school.ty=H*(.3+Math.random()*.28);school.timer=6+Math.random()*6}
   school.x+=(school.tx-school.x)*dt*.25;school.y+=(school.ty-school.y)*dt*.25;
-  const night=.45+.55*light;
+  const night=.45+.55*light,sick=pendingDoses().some(d=>d.due<=Date.now())?.7:1;
   for(const f of S.fish){
     const s=SPECIES[f.sp],L=fishLen(f);
-    let spd=s.speed*42*U*night*(f.full<20?.6:1),tgt=null,best=1e9;
+    let spd=s.speed*42*U*night*sick*(f.full<20?.6:1),tgt=null,best=1e9;
     if(f.full<95){for(const p of pellets){const d=Math.hypot(p.x-f.x,p.y-f.y);if(d<best){best=d;tgt=p}}}
     if(tgt&&best<Math.max(W,H)*.9){f.tx=tgt.x;f.ty=tgt.y;spd*=2.3}
     else{f.timer-=dt;if(f.timer<=0||Math.hypot(f.tx-f.x,f.ty-f.y)<20*U)pickTarget(f)}
@@ -515,7 +581,14 @@ function update(dt,t,light){
   wipes=wipes.filter(w=>t-w.t<.9);
   if(bubble){const ty=floorY(bubble.x)-bubble.r*.94;bubble.r=Math.min(W,H)*.2;const sink=Math.min(H/20,Math.max(0,ty-bubble.y)*.6);bubble.y=Math.min(ty,bubble.y+sink*dt);bubble.x=W*.5+Math.sin(t*.35+bubble.p)*W*.05*Math.min(1,Math.max(0,ty-bubble.y)/(H*.2))}
   for(const d of popFx){d.x+=d.vx*dt;d.y+=d.vy*dt;d.vx*=1-dt*3;d.vy=d.vy*(1-dt*3)+40*U*dt;d.life-=dt*1.6}
-  popFx=popFx.filter(d=>d.life>0);if(ring){ring.life-=dt*3;if(ring.life<=0)ring=null}
+  popFx=popFx.filter(d=>d.life>0);
+  for(const f of S.fish)if(f.glow>0)f.glow-=dt;
+  if(capsule){capsule.y+=capsule.vy*dt;capsule.rot+=dt*1.5;capsule.x+=Math.sin(t*2)*10*U*dt;
+    if(capsule.y>H*.42){for(let i=0;i<60;i++){const a=Math.random()*Math.PI*2,sp=(40+Math.random()*220)*U;sparks.push({x:capsule.x,y:capsule.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,r:(1.5+Math.random()*3)*U,h:Math.random()<.5?320:170})}
+      for(const f of S.fish){f.glow=8;f.tx=capsule.x+(Math.random()-.5)*120*U;f.ty=capsule.y+(Math.random()-.5)*80*U;f.timer=3}
+      tone(520,1040,.35,.12);capsule=null}}
+  for(const p of sparks){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=1-dt*2;p.vy=p.vy*(1-dt*2)-8*U*dt;p.life-=dt*.6}
+  sparks=sparks.filter(p=>p.life>0);if(ring){ring.life-=dt*3;if(ring.life<=0)ring=null}
 }
 function draw(t,light){
   c.setTransform(DPR,0,0,DPR,0,0);
@@ -541,6 +614,7 @@ function draw(t,light){
   // fish, small ones first so bigger fish read as nearer
   const order=[...S.fish].sort((a,b)=>fishLen(a)-fishLen(b));
   for(const f of order)drawFish(f,t,light);
+  drawMeds(t);
   for(const p of plants)if(p.layer==='front')drawPlant(p,t);
   // bubbles
   c.lineWidth=1;
@@ -613,6 +687,20 @@ function renderMeals(){
   S.meals.map((m,i)=>`<div class="mrow"><input data-i="${i}" data-k="label" value="${esc(m.label)}" maxlength="20" aria-label="Meal name"><input type="time" data-i="${i}" data-k="time" value="${esc(m.time)}" aria-label="Meal time"><button class="x" data-del="${i}" aria-label="Remove meal">×</button></div>`).join('')+
   `<button class="add" id="addMeal">Add a meal</button>`;
 }
+const DAYS=['Daily','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function renderMeds(){
+  const box=document.getElementById('medBox'),now=Date.now();
+  const days=[];for(let i=0;i<7;i++){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);days.push(d.getTime())}
+  const wk=S.medLog.filter(d=>now-d.due<7*864e5),done=wk.filter(d=>d.given).length,miss=wk.filter(d=>d.missed).length;
+  const chip=d=>d.given?`<span class="chip ok">✓ ${esc(d.name)} ${fmtClock(d.given)}</span>`:d.missed?`<span class="chip miss">✗ ${esc(d.name)} missed</span>`:`<span class="chip wait">… ${esc(d.name)} ${fmtClock(d.due)}</span>`;
+  box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish. Take yours, then tap 💊 to give theirs. Stays on this iPad only.</p>`+
+  S.meds.map((m,i)=>`<div class="mrow mrow4"><input data-mi="${i}" data-mk="name" value="${esc(m.name)}" maxlength="28" placeholder="Medicine" aria-label="Medicine name"><input type="time" data-mi="${i}" data-mk="time" value="${esc(m.time)}" aria-label="Dose time"><select data-mi="${i}" data-mk="day" aria-label="Which days">${DAYS.map((n,k)=>`<option value="${k-1}"${(m.day==null?-1:+m.day)===k-1?' selected':''}>${n}</option>`).join('')}</select><button class="x" data-mdel="${i}" aria-label="Remove dose">×</button></div>`).join('')+
+  `<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="add" id="addMed">Add a med</button><button class="add" id="impMed">Import setup code</button></div><div id="impBox" hidden><textarea id="impText" rows="3" placeholder="Paste the AQMEDS: setup code here" style="width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:8px;-webkit-user-select:text;user-select:text"></textarea><button class="add" id="impGo">Replace my med list with this</button><p class="stat err" id="impErr"></p></div>`+
+  (S.meds.length?`<div class="mlog">${done+miss?`Last 7 days: <b style="color:var(--ink)">${Math.round(done/(done+miss)*100)}%</b> given (${done} of ${done+miss}).`:'No doses logged yet.'}`+
+   days.map(day=>{const ds=S.medLog.filter(d=>d.due>=day&&d.due<day+864e5).sort((a,b)=>a.due-b.due);if(!ds.length)return '';
+     const lbl=day===days[0]?'Today':day===days[1]?'Yesterday':new Date(day).toLocaleDateString([], {weekday:'short',day:'numeric'});
+     return `<div class="day"><b>${lbl}</b>${ds.map(chip).join('')}</div>`}).join('')+`</div>`:'');
+}
 function renderCal(){
   const box=document.getElementById('calBox'),nc=nextCall()||dueCall();
   box.innerHTML=`<h3>Calls from Google Calendar</h3>`+(S.cal.url?
@@ -625,6 +713,17 @@ function renderCal(){
 function esc(s){return String(s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))}
 panel.addEventListener('click',e=>{
   const t=e.target;
+  if(t.id==='impMed'){const b=document.getElementById('impBox');b.hidden=!b.hidden;return}
+  if(t.id==='impGo'){const err=document.getElementById('impErr');
+    try{const raw=document.getElementById('impText').value.trim().replace(/^AQMEDS:/,'');
+      const list=JSON.parse(decodeURIComponent(escape(atob(raw))));
+      if(!Array.isArray(list)||!list.length||!list.every(m=>m.name&&/^\d\d:\d\d$/.test(m.time)))throw 0;
+      S.meds=list.map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day})).sort((a,b)=>a.time.localeCompare(b.time));
+      S.medCheck=Date.now();save();renderMeds();renderMedBtn();toast(`Imported ${S.meds.length} meds`);
+    }catch(e){err.textContent='That code didn\'t work. Copy the whole thing, starting with AQMEDS:'}
+    return}
+  if(t.id==='addMed'){S.meds.push({id:'m'+Date.now().toString(36),name:'',time:'08:00',day:-1});S.medCheck=Date.now();save();renderMeds();return}
+  if(t.dataset&&t.dataset.mdel!=null){const m=S.meds[+t.dataset.mdel];S.meds.splice(+t.dataset.mdel,1);if(m)S.medLog=S.medLog.filter(d=>d.medId!==m.id||d.given||d.missed);save();renderMeds();renderMedBtn();return}
   if(t.id==='calOn'){const v=document.getElementById('calUrl').value.trim();
     if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){S.cal.err='That doesn\'t look like the calendar link. It starts with https://script.google.com/';renderCal();return}
     S.cal.url=v;S.cal.err='';save();t.textContent='Connecting…';fetchCalls().then(()=>{if(S.cal.err){S.cal.url=''}save();renderCal();renderStats()});return}
@@ -637,27 +736,30 @@ panel.addEventListener('click',e=>{
   if(n&&n.trim()){f.name=n.trim().slice(0,24);save();renderPanel()}
 });
 panel.addEventListener('change',e=>{
-  const t=e.target;if(t.dataset.i==null)return;
+  const t=e.target;
+  if(t.dataset.mi!=null){const m=S.meds[+t.dataset.mi];if(!m)return;m[t.dataset.mk]=t.dataset.mk==='day'?+t.value:(t.value.trim()||(t.dataset.mk==='time'?m.time:''));
+    S.meds.sort((a,b)=>a.time.localeCompare(b.time));S.medCheck=Date.now();save();renderMeds();renderMedBtn();return}
+  if(t.dataset.i==null)return;
   const m=S.meals[+t.dataset.i];if(!m)return;
   m[t.dataset.k]=t.value.trim()||(t.dataset.k==='label'?'Meal':m.time);
   S.meals.sort((a,b)=>a.time.localeCompare(b.time));
   S.mealCheck=Date.now();save();renderMeals();renderPanel();
 });
-document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals();renderCal()}renderMealBanner();poke()});
+document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals();renderMeds();renderCal()}renderMealBanner();poke()});
 let toastTimer;
 function toast(msg){toastEl.textContent=msg;toastEl.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.classList.remove('on'),4500)}
 
 /* ---------- keep the screen on ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock'in navigator&&!lock&&document.visibilityState==='visible'){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();fetchCalls();wake()}else save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();checkMeds();renderMedBtn();fetchCalls();wake()}else save()});
 addEventListener('pagehide',save);
 
 /* ---------- start ---------- */
-catchUp();checkMeals();fetchCalls();
+catchUp();checkMeals();checkMeds();fetchCalls();
 addEventListener('resize',resize);resize();
 school.x=W/2;school.y=H*.45;
-renderStats();renderMealBanner();poke();
+renderStats();renderMealBanner();renderMedBtn();poke();
 setTimeout(()=>{while(queuedToasts.length)toast(queuedToasts.shift())},800);
 requestAnimationFrame(frame);
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
