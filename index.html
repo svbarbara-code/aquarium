@@ -427,12 +427,12 @@ let W=0,H=0,DPR=1,U=1,bg=null,plants=[],motes=[];
 function rng(seed){return()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}}
 /* painted background (Higgsfield line-art reef). Positions are fractions of the picture. */
 const BG_ARTS={   // the app picks the picture that best fits the screen shape
-  wide:  {src:'assets/reef-wide.jpg',sand:.88, cx:.5, anemone:{x:.25,y:.70,h:.10}},   // iPad sideways
-  square:{src:'assets/reef-bg.jpg',  sand:.885,cx:.45,anemone:{x:.29,y:.62,h:.09}}    // iPad upright / phone
+  wide:{src:'assets/reef-wide.jpg',sand:.88,cx:.5, anemone:{x:.25, y:.70,h:.10}},   // iPad sideways (16:9)
+  tall:{src:'assets/reef-tall.jpg',sand:.90,cx:.5, anemone:{x:.275,y:.78,h:.07}}    // phone and iPad upright (9:16)
 };
 const BG_IMGS={};for(const k in BG_ARTS){const im=new Image();im.onload=()=>{if(W)resize()};im.src=BG_ARTS[k].src;BG_IMGS[k]=im}
-let BG_ART=BG_ARTS.square,bgImg=BG_IMGS.square,BGM=null;
-function pickArt(){const k=W/H>=1.15?'wide':'square';BG_ART=BG_ARTS[k];bgImg=BG_IMGS[k]}
+let BG_ART=BG_ARTS.tall,bgImg=BG_IMGS.tall,BGM=null;
+function pickArt(){const k=W/H>=1?'wide':'tall';BG_ART=BG_ARTS[k];bgImg=BG_IMGS[k]}
 function bgReady(){return bgImg.complete&&bgImg.naturalWidth>0}
 function bgMap(){                       // cover the screen, keep the reef (bottom) and the anemone in view
   const iw=bgImg.naturalWidth,ih=bgImg.naturalHeight,k=Math.max(W/iw,H/ih),dw=iw*k,dh=ih*k;
