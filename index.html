@@ -21,7 +21,7 @@ canvas{position:fixed;inset:0;width:100vw;height:100vh;touch-action:none;display
 .glass{background:var(--glass);border:1px solid var(--line);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);border-radius:16px}
 #hud{position:fixed;top:calc(env(safe-area-inset-top) + 14px);left:calc(env(safe-area-inset-left) + 16px);right:calc(env(safe-area-inset-right) + 16px);display:flex;justify-content:space-between;align-items:flex-start;gap:10px;pointer-events:none;transition:opacity .8s}
 #hud.idle{opacity:.18}
-#stats{padding:9px 14px;display:flex;gap:14px;align-items:center;font-size:13px;pointer-events:auto}
+#stats{padding:9px 14px;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:13px;pointer-events:auto}
 #stats b{font-weight:600}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
 button{font:inherit;color:var(--ink);background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:9px 16px;cursor:pointer;pointer-events:auto;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
@@ -117,7 +117,8 @@ function fresh(){
 }
 function newFish(sp,name,i){return {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(i||0), sp, name, full:70, growth:.35, born:Date.now()}}
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));return s&&s.fish?s:null}catch(e){return null}}
-function save(){S.last=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+let NOSAVE=false;
+function save(){if(NOSAVE)return;S.last=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 
 /* ---------- simulation (sim hours) ---------- */
 const queuedToasts=[];
@@ -134,7 +135,7 @@ function simulate(h){
     for(const u of UNLOCKS){
       if(S.care>=u.at && !S.unlocked.includes(u.sp)){
         S.unlocked.push(u.sp);
-        const f=newFish(u.sp,u.name);f.full=80;S.fish.push(f);spawn(f,true);
+        const f=newFish(u.sp,u.name);f.id='u-'+u.sp;f.full=80;S.fish.push(f);spawn(f,true);
         queuedToasts.push(`A new ${SPECIES[u.sp].label.toLowerCase()} arrived: say hi to ${u.name}`);
       }
     }
@@ -191,7 +192,7 @@ async function fetchCalls(){
       S.medsSeeded=true;
       if(!S.meds.length){
         S.meds=j.meds.filter(m=>m&&m.name&&/^\d\d:\d\d$/.test(m.time)).map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day,ref:m.ref||'',habit:m.habit||''})).sort((a,b)=>a.time.localeCompare(b.time));
-        S.medCheck=Date.now();toast(`Added your ${S.meds.length} meds. Edit them in the Fish panel.`);
+        S.medCheck=Date.now();S.medsAt=Date.now();toast(`Added your ${S.meds.length} meds. Edit them in the Fish panel.`);
       }
       save();renderMedBtn();if(!panel.hidden)renderMeds();
     }
@@ -214,7 +215,7 @@ function tone(f0,f1,dur,vol){
 function unlockAudio(){try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();if(actx.state!=='running')actx.resume()}catch(e){}}
 function chime(){tone(320,640,.25,.12);setTimeout(()=>tone(480,960,.3,.1),180)}
 function popBubble(){
-  const b=bubble;S.popped[b.call.id]=Date.now();save();
+  const b=bubble;S.popped[b.call.id]=Date.now();save();syncSoon();
   for(let i=0;i<46;i++){const a=Math.random()*Math.PI*2,sp=(120+Math.random()*380)*U;popFx.push({x:b.x+Math.cos(a)*b.r*.95,y:b.y+Math.sin(a)*b.r*.95,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,r:(1.5+Math.random()*4)*U})}
   ring={x:b.x,y:b.y,r:b.r,life:1};bubble=null;
   tone(900,140,.12,.35);toast('Have a good call!');
@@ -272,7 +273,7 @@ function checkMeds(){
   for(const o of medOccurrences(S.medCheck,now))if(!have.has(o.id))S.medLog.push({...o,given:null,missed:false});
   S.medCheck=now;
   for(const d of S.medLog)if(!d.given&&!d.missed&&now>missAt(d.due)){d.missed=true;queueDose(d)}
-  S.medLog=S.medLog.filter(d=>now-d.due<60*864e5);
+  S.medLog=S.medLog.filter(d=>now-d.due<21*864e5);
 }
 /* doses travel to the Saúde DB (and from there Pinky ticks the Life habit) through the private link */
 function queueDose(d){S.outbox=S.outbox.filter(x=>x.id!==d.id);S.outbox.push({id:d.id,name:d.name,due:d.due,given:d.given||null,ref:d.ref||'',habit:d.habit||''})}
@@ -289,6 +290,65 @@ async function flushOutbox(){
     }
   }catch(e){S.syncErr=String(e.message||e)}finally{flushing=false;if(!panel.hidden)renderMeds()}
 }
+/* ---------- sync across iPad and phone (through the same private link) ---------- */
+const LOCAL_ONLY=['cal','outbox','seen','syncRev','lastSyncAll','syncErr','syncedOnce','last','lastSync'];
+function shareable(st){
+  const o={};for(const k in st)if(!LOCAL_ONLY.includes(k))o[k]=st[k];
+  o.fish=(st.fish||[]).map(f=>({id:f.id,sp:f.sp,name:f.name,nameAt:f.nameAt||0,full:f.full,growth:f.growth,born:f.born}));
+  o.savedAt=Date.now();return o;
+}
+function advance(R){                 // bring a copy from another device up to now with the same rules
+  const L=S,tq=queuedToasts.length;R.last=R.savedAt||R.last||Date.now();R.outbox=[];R.cal=L.cal;
+  NOSAVE=true;S=R;try{catchUp();checkMeals();checkMeds()}finally{S=L;NOSAVE=false;queuedToasts.length=tq}
+  delete R.outbox;delete R.cal;return R;
+}
+function mergeInto(L,R){
+  const by=new Map(L.fish.map(f=>[f.id,f]));
+  for(const rf of R.fish||[]){const lf=by.get(rf.id);
+    if(!lf){const nf={...rf};spawn(nf);L.fish.push(nf);by.set(nf.id,nf);continue}
+    lf.full=Math.max(lf.full,rf.full);lf.growth=Math.max(lf.growth,rf.growth);
+    if((rf.nameAt||0)>(lf.nameAt||0)){lf.name=rf.name;lf.nameAt=rf.nameAt}}
+  L.dirt=Math.min(L.dirt,R.dirt??L.dirt);L.care=Math.max(L.care||0,R.care||0);
+  L.unlocked=[...new Set([...(L.unlocked||[]),...(R.unlocked||[])])];
+  L.mealCheck=Math.max(L.mealCheck||0,R.mealCheck||0);L.medCheck=Math.max(L.medCheck||0,R.medCheck||0);
+  L.medsSeeded=!!(L.medsSeeded||R.medsSeeded);
+  if((R.mealsAt||0)>(L.mealsAt||0)&&R.meals){L.meals=R.meals;L.mealsAt=R.mealsAt}
+  if((R.medsAt||0)>(L.medsAt||0)&&R.meds){L.meds=R.meds;L.medsAt=R.medsAt}
+  const m=new Map(L.medLog.map(d=>[d.id,d]));
+  for(const d of R.medLog||[]){const x=m.get(d.id);
+    if(!x){m.set(d.id,{...d});continue}
+    if(d.given&&(!x.given||d.given<x.given)){x.given=d.given;x.missed=false}
+    else if(!x.given&&d.missed)x.missed=true}
+  L.medLog=[...m.values()];
+  L.popped={...(R.popped||{}),...(L.popped||{})};
+  if(R.mealNow&&(!L.mealNow||R.mealNow.at>L.mealNow.at))L.mealNow=R.mealNow;
+  if(R.cal&&R.cal.calls&&!L.cal.calls.length)L.cal.calls=R.cal.calls;
+}
+let syncing=false,syncTimer=null;
+function syncSoon(){clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,6000)}
+async function syncNow(){
+  if(syncing||!S.cal.url)return;syncing=true;
+  const base=S.cal.url+(S.cal.url.includes('?')?'&':'?');
+  try{
+    for(let attempt=0;attempt<3;attempt++){
+      const r=await (await fetch(base+'action=pull&_='+Date.now())).json();
+      if(r.error)throw new Error(r.error);
+      if(r.state){
+        const R=advance(r.state);
+        if(!S.syncedOnce){                       // first time on this device: take the shared tank as it is
+          const keep={cal:S.cal,outbox:S.outbox,seen:S.seen};
+          S=Object.assign(R,keep);S.fish.forEach(f=>spawn(f));school.x=W/2;school.y=H*.45;
+        }else mergeInto(S,R);
+      }
+      S.syncedOnce=true;
+      const p=await (await fetch(base+'_='+Date.now(),{method:'POST',body:JSON.stringify({action:'push',baseRev:r.rev||0,state:shareable(S)})})).json();
+      if(p.conflict)continue;
+      if(p.error)throw new Error(p.error);
+      S.syncRev=p.rev;S.lastSyncAll=Date.now();S.syncErr='';break;
+    }
+  }catch(e){S.syncErr=String(e.message||e).slice(0,80)}
+  finally{syncing=false;save();renderStats();renderMedBtn();if(!panel.hidden){renderPanel();renderMeds();renderMeals();renderCal()}}
+}
 function pendingDoses(){return S.medLog.filter(d=>!d.given&&!d.missed).sort((a,b)=>a.due-b.due)}
 function overdueDose(){const n=Date.now();return S.medLog.some(d=>!d.given&&!d.missed&&n-d.due>2*36e5)}
 function upcomingDose(){const n=Date.now(),have=new Set(S.medLog.map(d=>d.id));return medOccurrences(n,n+MED_EARLY).find(o=>!have.has(o.id))}
@@ -296,7 +356,7 @@ let capsule=null,sparks=[],SICK=false,pillBubble=null,tipTimer=null;
 function giveDoses(list){
   const now=Date.now();
   for(const d of list){if(!S.medLog.includes(d))S.medLog.push(d);d.given=now;d.missed=false;queueDose(d)}
-  save();flushOutbox();
+  save();flushOutbox();syncSoon();
   capsule={x:W*(.35+Math.random()*.3),y:-30*U,vy:70*U,rot:Math.random()*6};
   toast(list.length>1?`Logged ${list.length} meds at ${fmtClock(now)}`:`Logged: ${list[0].name} at ${fmtClock(now)}`);
   renderMedBtn();if(!panel.hidden)renderMeds();
@@ -365,7 +425,7 @@ function floorY(x){return H*.845+Math.sin(x/W*3+1)*H*.014+Math.sin(x/W*7.3)*H*.0
 function resize(){
   DPR=Math.min(2,window.devicePixelRatio||1);
   W=Math.max(320,innerWidth||0);H=Math.max(320,innerHeight||0);cv.width=W*DPR;cv.height=H*DPR;
-  U=Math.min(W,H)/620;
+  U=Math.sqrt(W*H)/720;   // scale by screen area: same on iPad, bigger fish on a phone
   buildBackground();buildPlants();
   motes=Array.from({length:70},()=>({x:Math.random()*W,y:Math.random()*H*.85,r:Math.random()*1.4+.4,s:Math.random()*6+2,p:Math.random()*6}));
   for(const f of S.fish) if(f.x==null||f.x<=0||f.x>W||f.y>H) spawn(f);
@@ -591,7 +651,7 @@ function frame(now){
   const dt=Math.min(.05,(now-lastT)/1000);lastT=now;const t=now/1000;
   simulate(dt/3600*SIM);saveClock+=dt;uiClock+=dt;
   if(saveClock>5){saveClock=0;save()}
-  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();checkMeds();renderMedBtn();updateBubble();if(S.outbox.length&&calClock%60===0)flushOutbox();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
+  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();checkMeds();renderMedBtn();updateBubble();if(S.outbox.length&&calClock%60===0)flushOutbox();if(calClock%120===60)syncNow();if(++calClock>=300){calClock=0;fetchCalls()}renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
   const light=lightLevel();update(dt,t,light);draw(t,light);
   requestAnimationFrame(frame);
 }
@@ -714,7 +774,7 @@ cv.addEventListener('pointermove',e=>{
   }
   down.lx=e.clientX;down.ly=e.clientY;
 });
-const up=e=>{if(down&&down.med){clearTimeout(down.hold);if(!down.held&&down.dist<28)giveNow();down=null;return}if(down&&down.popped){down=null;return}if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
+const up=e=>{if(down)syncSoon();if(down&&down.med){clearTimeout(down.hold);if(!down.held&&down.dist<28)giveNow();down=null;return}if(down&&down.popped){down=null;return}if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
 cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',()=>{if(down)clearTimeout(down.hold);down=null});
 
 /* ---------- UI ---------- */
@@ -752,7 +812,7 @@ function renderMeds(){
   const days=[];for(let i=0;i<7;i++){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);days.push(d.getTime())}
   const wk=S.medLog.filter(d=>now-d.due<7*864e5),done=wk.filter(d=>d.given).length,miss=wk.filter(d=>d.missed).length;
   const chip=d=>d.given?`<span class="chip ok">✓ ${esc(d.name)} ${fmtClock(d.given)}</span>`:d.missed?`<span class="chip miss">✗ ${esc(d.name)} missed</span>`:`<span class="chip wait">… ${esc(d.name)} ${fmtClock(d.due)}</span>`;
-  box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish and one thinks of a pill. Take yours, then tap that fish to give theirs (hold it to see which meds). Stays on this iPad only.</p>`+
+  box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish and one thinks of a pill. Take yours, then tap that fish to give theirs (hold it to see which meds). Shared between your iPad and phone.</p>`+
   S.meds.map((m,i)=>`<div class="mrow mrow4"><input data-mi="${i}" data-mk="name" value="${esc(m.name)}" maxlength="28" placeholder="Medicine" aria-label="Medicine name"><input type="time" data-mi="${i}" data-mk="time" value="${esc(m.time)}" aria-label="Dose time"><select data-mi="${i}" data-mk="day" aria-label="Which days">${DAYS.map((n,k)=>`<option value="${k-1}"${(m.day==null?-1:+m.day)===k-1?' selected':''}>${n}</option>`).join('')}</select><button class="x" data-mdel="${i}" aria-label="Remove dose">×</button></div>`).join('')+
   `<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="add" id="addMed">Add a med</button><button class="add" id="impMed">Import setup code</button></div><div id="impBox" hidden><textarea id="impText" rows="3" placeholder="Paste the AQMEDS: setup code here" style="width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:8px;-webkit-user-select:text;user-select:text"></textarea><button class="add" id="impGo">Replace my med list with this</button><p class="stat err" id="impErr"></p></div>`+
   (S.meds.length?`<div class="mlog"><p style="margin:0 0 6px">${!S.cal.url?'Connect your calendar link below to also save doses to your Saúde DB and Pinky.':S.outbox.length?`⏳ ${S.outbox.length} dose${S.outbox.length>1?'s':''} waiting to reach your Saúde DB and Pinky.`:S.lastSync?`✓ Saved to your Saúde DB and Pinky (${fmtClock(S.lastSync)}).`:'Doses you give are saved to your Saúde DB and Pinky.'}</p>${done+miss?`Last 7 days: <b style="color:var(--ink)">${Math.round(done/(done+miss)*100)}%</b> given (${done} of ${done+miss}).`:'No doses logged yet.'}`+
@@ -762,7 +822,7 @@ function renderMeds(){
 }
 function renderCal(){
   const box=document.getElementById('calBox'),nc=nextCall()||dueCall();
-  box.innerHTML=`<h3>Calls from Google Calendar</h3>`+(S.cal.url?
+  box.innerHTML=`<h3>Calls, sync and saving</h3>`+(S.cal.url?`<p class="stat">${S.syncErr?`<span class="err">Sync: ${esc(S.syncErr)}</span>`:S.lastSyncAll?`🔄 Synced with your other devices at ${fmtClock(S.lastSyncAll)}.`:'🔄 Syncing with your other devices…'}</p>`:'')+(S.cal.url?
     `<p class="stat">Connected. ${nc?`Next call: <b style="color:var(--ink)">${esc(nc.title)}</b> at ${fmtClock(nc.start)}.`:'No calls in the next 12 hours.'} A bubble sinks into the tank 5 minutes before each call: pop it to say you're ready.</p>${S.cal.err?`<p class="stat err">${esc(S.cal.err)}</p>`:''}
      <div class="btns"><button id="calRefresh">Refresh now</button><button id="calOff">Disconnect</button></div>`:
     `<p class="stat">Paste your private calendar link to get a bubble 5 minutes before each call.</p>
@@ -778,31 +838,31 @@ panel.addEventListener('click',e=>{
       const list=JSON.parse(decodeURIComponent(escape(atob(raw))));
       if(!Array.isArray(list)||!list.length||!list.every(m=>m.name&&/^\d\d:\d\d$/.test(m.time)))throw 0;
       S.meds=list.map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day})).sort((a,b)=>a.time.localeCompare(b.time));
-      S.medCheck=Date.now();save();renderMeds();renderMedBtn();toast(`Imported ${S.meds.length} meds`);
+      S.medCheck=Date.now();S.medsAt=Date.now();save();syncSoon();renderMeds();renderMedBtn();toast(`Imported ${S.meds.length} meds`);
     }catch(e){err.textContent='That code didn\'t work. Copy the whole thing, starting with AQMEDS:'}
     return}
-  if(t.id==='addMed'){S.meds.push({id:'m'+Date.now().toString(36),name:'',time:'08:00',day:-1});S.medCheck=Date.now();save();renderMeds();return}
-  if(t.dataset&&t.dataset.mdel!=null){const m=S.meds[+t.dataset.mdel];S.meds.splice(+t.dataset.mdel,1);if(m)S.medLog=S.medLog.filter(d=>d.medId!==m.id||d.given||d.missed);save();renderMeds();renderMedBtn();return}
+  if(t.id==='addMed'){S.meds.push({id:'m'+Date.now().toString(36),name:'',time:'08:00',day:-1});S.medCheck=Date.now();S.medsAt=Date.now();save();syncSoon();renderMeds();return}
+  if(t.dataset&&t.dataset.mdel!=null){const m=S.meds[+t.dataset.mdel];S.meds.splice(+t.dataset.mdel,1);if(m)S.medLog=S.medLog.filter(d=>d.medId!==m.id||d.given||d.missed);S.medsAt=Date.now();save();syncSoon();renderMeds();renderMedBtn();return}
   if(t.id==='calOn'){const v=document.getElementById('calUrl').value.trim();
     if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){S.cal.err='That doesn\'t look like the calendar link. It starts with https://script.google.com/';renderCal();return}
-    S.cal.url=v;S.cal.err='';save();t.textContent='Connecting…';fetchCalls().then(()=>{if(S.cal.err){S.cal.url=''}save();renderCal();renderStats()});return}
+    S.cal.url=v;S.cal.err='';save();t.textContent='Connecting…';fetchCalls().then(()=>{if(S.cal.err){S.cal.url=''}save();renderCal();renderStats();syncNow()});return}
   if(t.id==='calOff'){S.cal={url:'',calls:[],fetched:0,err:''};save();renderCal();renderStats();return}
   if(t.id==='calRefresh'){t.textContent='Refreshing…';fetchCalls().then(()=>{renderCal();renderStats()});return}
-  if(t.id==='addMeal'){S.meals.push({label:'Meal',time:'10:00'});save();renderMeals();return}
-  if(t.dataset&&t.dataset.del!=null){S.meals.splice(+t.dataset.del,1);save();renderMeals();renderPanel();return}
+  if(t.id==='addMeal'){S.meals.push({label:'Meal',time:'10:00'});S.mealsAt=Date.now();save();syncSoon();renderMeals();return}
+  if(t.dataset&&t.dataset.del!=null){S.meals.splice(+t.dataset.del,1);S.mealsAt=Date.now();save();syncSoon();renderMeals();renderPanel();return}
   const id=t.dataset&&t.dataset.id;if(!id)return;
   const f=S.fish.find(x=>x.id===id);const n=prompt('New name for '+f.name,f.name);
-  if(n&&n.trim()){f.name=n.trim().slice(0,24);save();renderPanel()}
+  if(n&&n.trim()){f.name=n.trim().slice(0,24);f.nameAt=Date.now();save();syncSoon();renderPanel()}
 });
 panel.addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset.mi!=null){const m=S.meds[+t.dataset.mi];if(!m)return;m[t.dataset.mk]=t.dataset.mk==='day'?+t.value:(t.value.trim()||(t.dataset.mk==='time'?m.time:''));
-    S.meds.sort((a,b)=>a.time.localeCompare(b.time));S.medCheck=Date.now();save();renderMeds();renderMedBtn();return}
+    S.meds.sort((a,b)=>a.time.localeCompare(b.time));S.medCheck=Date.now();S.medsAt=Date.now();save();syncSoon();renderMeds();renderMedBtn();return}
   if(t.dataset.i==null)return;
   const m=S.meals[+t.dataset.i];if(!m)return;
   m[t.dataset.k]=t.value.trim()||(t.dataset.k==='label'?'Meal':m.time);
-  S.meals.sort((a,b)=>a.time.localeCompare(b.time));
-  S.mealCheck=Date.now();save();renderMeals();renderPanel();
+  S.meals.sort((a,b)=>a.time.localeCompare(b.time));S.mealsAt=Date.now();
+  S.mealCheck=Date.now();save();syncSoon();renderMeals();renderPanel();
 });
 document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals();renderMeds();renderCal()}renderMealBanner();poke()});
 let toastTimer;
@@ -811,11 +871,11 @@ function toast(msg){toastEl.textContent=msg;toastEl.classList.add('on');clearTim
 /* ---------- keep the screen on ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock'in navigator&&!lock&&document.visibilityState==='visible'){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();checkMeds();renderMedBtn();fetchCalls();flushOutbox();wake()}else save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();checkMeds();renderMedBtn();fetchCalls();flushOutbox();syncNow();wake()}else save()});
 addEventListener('pagehide',save);
 
 /* ---------- start ---------- */
-catchUp();checkMeals();checkMeds();fetchCalls();flushOutbox();
+catchUp();checkMeals();checkMeds();fetchCalls();flushOutbox();setTimeout(syncNow,1500);
 addEventListener('resize',resize);resize();
 school.x=W/2;school.y=H*.45;
 renderStats();renderMealBanner();renderMedBtn();poke();
