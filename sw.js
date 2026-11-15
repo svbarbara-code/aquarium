@@ -1,5 +1,5 @@
-const CACHE='aquarium-v14';
-const FILES=['./','index.html','manifest.json','icon-512.png'];
+const CACHE='aquarium-v15';
+const FILES=['./','index.html','manifest.json','icon-512.png','assets/reef-bg.jpg','assets/reef-wide.jpg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).origin!==location.origin)return;

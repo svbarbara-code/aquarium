@@ -425,7 +425,23 @@ function mood(f){
 const cv=document.getElementById('tank'), c=cv.getContext('2d');
 let W=0,H=0,DPR=1,U=1,bg=null,plants=[],motes=[];
 function rng(seed){return()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}}
-function floorY(x){return H*.845+Math.sin(x/W*3+1)*H*.014+Math.sin(x/W*7.3)*H*.007}
+/* painted background (Higgsfield line-art reef). Positions are fractions of the picture. */
+const BG_ARTS={   // the app picks the picture that best fits the screen shape
+  wide:  {src:'assets/reef-wide.jpg',sand:.88, cx:.5, anemone:{x:.25,y:.70,h:.10}},   // iPad sideways
+  square:{src:'assets/reef-bg.jpg',  sand:.885,cx:.45,anemone:{x:.29,y:.62,h:.09}}    // iPad upright / phone
+};
+const BG_IMGS={};for(const k in BG_ARTS){const im=new Image();im.onload=()=>{if(W)resize()};im.src=BG_ARTS[k].src;BG_IMGS[k]=im}
+let BG_ART=BG_ARTS.square,bgImg=BG_IMGS.square,BGM=null;
+function pickArt(){const k=W/H>=1.15?'wide':'square';BG_ART=BG_ARTS[k];bgImg=BG_IMGS[k]}
+function bgReady(){return bgImg.complete&&bgImg.naturalWidth>0}
+function bgMap(){                       // cover the screen, keep the reef (bottom) and the anemone in view
+  const iw=bgImg.naturalWidth,ih=bgImg.naturalHeight,k=Math.max(W/iw,H/ih),dw=iw*k,dh=ih*k;
+  const ox=Math.min(0,Math.max(W-dw,W/2-BG_ART.cx*dw)),oy=H-dh;
+  return {dw,dh,ox,oy,px:x=>ox+x*dw,py:y=>oy+y*dh};
+}
+function floorY(x){
+  if(BGM)return BGM.py(BG_ART.sand)+Math.sin(x/W*3+1)*H*.006;
+  return H*.845+Math.sin(x/W*3+1)*H*.014+Math.sin(x/W*7.3)*H*.007}
 
 function resize(){
   DPR=Math.min(2,window.devicePixelRatio||1);
@@ -439,6 +455,9 @@ function resize(){
 function buildBackground(){
   bg=document.createElement('canvas');bg.width=W*DPR;bg.height=H*DPR;
   const g=bg.getContext('2d');g.scale(DPR,DPR);const r=rng(7);
+  pickArt();
+  if(bgReady()){BGM=bgMap();g.imageSmoothingQuality='high';g.drawImage(bgImg,BGM.ox,BGM.oy,BGM.dw,BGM.dh);return}
+  BGM=null;
   // water: sunlit turquoise at the surface, deep blue below
   let gr=g.createLinearGradient(0,0,0,H);
   gr.addColorStop(0,'#78dcef');gr.addColorStop(.18,'#3fbfe0');gr.addColorStop(.5,'#1a8fc2');gr.addColorStop(.8,'#0f689c');gr.addColorStop(1,'#0a4c78');
@@ -512,6 +531,7 @@ let REEF={topL:0,topR:0};
 // living, swaying reef: anemones, pulsing soft corals, a sea fan and seagrass
 function buildPlants(){
   const r=rng(42);plants=[];
+  if(BGM){const a=BG_ART.anemone;plants.push({kind:'anemone',hidden:true,x:BGM.px(a.x),y:BGM.py(a.y),h:BGM.dh*a.h,seed:0});return}   // the anemone is in the picture: just remember where
   const add=(o)=>plants.push(Object.assign({seed:r()*10},o));
   add({kind:'seagrass',layer:'back',x:W*.03,n:9,h:120*U});
   add({kind:'seagrass',layer:'back',x:W*.97,n:8,h:105*U});
@@ -523,6 +543,7 @@ function buildPlants(){
   add({kind:'xenia',layer:'front',x:W*.05,y:floorY(W*.05)+10*U,n:6,h:34*U,col:'#ffd7a8',tip:'#fff4e0'});
 }
 function drawPlant(p,t){
+  if(p.hidden)return;
   const sw=(k,a)=>Math.sin(t*.7+p.seed+k*.5)*a+Math.sin(t*1.6+k)*a*.25;
   if(p.kind==='seagrass'){const by=floorY(p.x)+6*U;c.lineCap='round';
     for(let i=0;i<p.n;i++){const bx=p.x+(i-(p.n-1)/2)*5*U,h=p.h*(.6+((i*37)%10)/22);
@@ -789,7 +810,7 @@ function draw(t,light){
   for(let i=0;i<5;i++){
     const x=W*(.1+i*.2)+Math.sin(t*.12+i*1.7)*W*.05,w=W*(.04+((i*7)%3)*.02);
     const gr=c.createLinearGradient(0,0,0,H*.85);
-    gr.addColorStop(0,`rgba(235,252,255,${(.14+Math.sin(t*.4+i)*.04)*light})`);gr.addColorStop(1,'rgba(235,252,255,0)');
+    gr.addColorStop(0,`rgba(235,252,255,${(.14+Math.sin(t*.4+i)*.04)*light*(BGM?.55:1)})`);gr.addColorStop(1,'rgba(235,252,255,0)');
     c.fillStyle=gr;c.beginPath();c.moveTo(x,0);c.lineTo(x+w,0);c.lineTo(x+w*2.6+W*.08,H*.85);c.lineTo(x+W*.06,H*.85);c.fill();
   }
   c.globalCompositeOperation='source-over';
