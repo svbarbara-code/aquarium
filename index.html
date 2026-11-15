@@ -181,6 +181,14 @@ async function fetchCalls(){
     const r=await fetch(S.cal.url+(S.cal.url.includes('?')?'&':'?')+'_='+Date.now());
     const j=await r.json();if(j.error)throw new Error(j.error);
     S.cal.calls=(j.calls||[]).filter(c=>c&&c.id&&c.start&&c.end);S.cal.fetched=Date.now();S.cal.err='';save();
+    if(Array.isArray(j.meds)&&j.meds.length&&!S.medsSeeded){      // one-time: your med list arrives with the private link
+      S.medsSeeded=true;
+      if(!S.meds.length){
+        S.meds=j.meds.filter(m=>m&&m.name&&/^\d\d:\d\d$/.test(m.time)).map((m,i)=>({id:'m'+Date.now().toString(36)+i,name:String(m.name).slice(0,28),time:m.time,day:m.day==null?-1:+m.day})).sort((a,b)=>a.time.localeCompare(b.time));
+        S.medCheck=Date.now();toast(`Added your ${S.meds.length} meds. Edit them in the Fish panel.`);
+      }
+      save();renderMedBtn();if(!panel.hidden)renderMeds();
+    }
   }catch(e){S.cal.err=String(e.message)==='unauthorized'?'The calendar link has the wrong key.':'Could not reach your calendar. Check the link or your connection.'}
   if(!panel.hidden)renderCal();
 }
@@ -704,7 +712,7 @@ function renderMeds(){
 function renderCal(){
   const box=document.getElementById('calBox'),nc=nextCall()||dueCall();
   box.innerHTML=`<h3>Calls from Google Calendar</h3>`+(S.cal.url?
-    `<p class="stat">Connected. ${nc?`Next call: <b style="color:var(--ink)">${esc(nc.title)}</b> at ${fmtClock(nc.start)}.`:'No calls in the next 12 hours.'} A bubble rises 5 minutes before each call: pop it to say you're ready.</p>${S.cal.err?`<p class="stat err">${esc(S.cal.err)}</p>`:''}
+    `<p class="stat">Connected. ${nc?`Next call: <b style="color:var(--ink)">${esc(nc.title)}</b> at ${fmtClock(nc.start)}.`:'No calls in the next 12 hours.'} A bubble sinks into the tank 5 minutes before each call: pop it to say you're ready.</p>${S.cal.err?`<p class="stat err">${esc(S.cal.err)}</p>`:''}
      <div class="btns"><button id="calRefresh">Refresh now</button><button id="calOff">Disconnect</button></div>`:
     `<p class="stat">Paste your private calendar link to get a bubble 5 minutes before each call.</p>
      <input id="calUrl" placeholder="https://script.google.com/macros/s/…/exec?key=…" autocomplete="off" autocapitalize="off" spellcheck="false">
