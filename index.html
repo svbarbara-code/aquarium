@@ -50,7 +50,7 @@ button:active{transform:scale(.97)}
 .mlog .day b{width:58px;font-weight:500;color:var(--ink)}
 .chip{padding:2px 8px;border-radius:9px;font-size:11.5px}
 .chip.ok{background:rgba(127,224,176,.16);color:var(--good)}.chip.miss{background:rgba(255,138,122,.16);color:var(--bad)}.chip.wait{background:rgba(255,201,107,.16);color:var(--warn)}
-#tip{position:fixed;z-index:5;max-width:280px;padding:12px 14px;font-size:14px;line-height:1.35;background:rgba(40,20,60,.82);border-color:rgba(255,190,240,.45)}
+#tip{pointer-events:none;position:fixed;z-index:5;max-width:280px;padding:12px 14px;font-size:14px;line-height:1.35;background:rgba(40,20,60,.82);border-color:rgba(255,190,240,.45)}
 #tip[hidden]{display:none}
 #tip b{display:block;font-size:12px;font-weight:500;color:var(--soft);margin-bottom:4px}
 #tip ul{margin:0 0 8px;padding-left:18px}
@@ -287,28 +287,27 @@ function giveDoses(list){
   renderMedBtn();if(!panel.hidden)renderMeds();
 }
 const medBtn=document.getElementById('medBtn');
-function renderMedBtn(){
-  const p=pendingDoses();let group;
-  if(p.length)group=p.filter(d=>d.due===p[0].due);
-  else{const u=upcomingDose();if(u){const have=new Set(S.medLog.map(d=>d.id));group=medOccurrences(u.due-1,u.due).filter(o=>!have.has(o.id)).map(o=>({...o,given:null,missed:false}))}}
-  if(!group||!group.length){medBtn.hidden=true;medBtn._doses=null;return}
-  medBtn.hidden=false;const d=group[0],early=d.due>Date.now(),late=p.length>group.length?` · ${p.length-group.length} more after`:'';
-  const names=group.map(x=>x.name).join(', ');
-  medBtn.innerHTML=`💊 ${group.length>1?`Give ${fmtClock(d.due)} meds`:`Give ${esc(d.name)}`}<small>${group.length>1?esc(names)+' · ':''}${early?'Due':'Was due'} ${fmtClock(d.due)}${early?' · you can give it now':''}${late}</small>`;
-  medBtn._doses=group;
+let GIVE=null;   // the dose group the fish can be given right now (due, or up to 60 min early)
+function giveableGroup(){
+  const p=pendingDoses();
+  if(p.length)return p.filter(d=>d.due===p[0].due);
+  const u=upcomingDose();if(!u)return null;
+  const have=new Set(S.medLog.map(d=>d.id));
+  const g=medOccurrences(u.due-1,u.due).filter(o=>!have.has(o.id)).map(o=>({...o,given:null,missed:false}));
+  return g.length?g:null;
 }
-medBtn.addEventListener('click',()=>{const g=medBtn._doses;if(g&&g.length){poke();unlockAudio();tone(660,990,.18,.18);giveDoses(g)}});
+function giveNow(){if(!GIVE)return;poke();unlockAudio();tone(660,990,.18,.18);hideTip();giveDoses(GIVE);GIVE=null}
+function renderMedBtn(){medBtn.hidden=true;GIVE=giveableGroup();if(!GIVE)hideTip()}
 const tip=document.getElementById('tip');
-function dueGroup(){const p=pendingDoses().filter(d=>d.due<=Date.now());return p.length?p.filter(d=>d.due===p[0].due):null}
 function sickFishAt(x,y){
-  if(!SICK)return false;
+  if(!GIVE)return false;
   if(pillBubble&&Math.hypot(x-pillBubble.x,y-pillBubble.y)<pillBubble.r)return true;
   return S.fish.some(f=>Math.hypot(x-f.x,y-f.y)<Math.max(22*U,fishLen(f)*.6));
 }
 function showTip(x,y,sticky){
-  const g=dueGroup();if(!g)return hideTip();
-  const more=pendingDoses().filter(d=>d.due<=Date.now()).length-g.length;
-  tip.innerHTML=`<b>The fish need their ${fmtClock(g[0].due)} meds</b><ul>${g.map(d=>`<li>${esc(d.name)}</li>`).join('')}</ul>${more>0?`<p style="margin:0 0 8px;font-size:12px;color:var(--soft)">+${more} more due after these</p>`:''}<button id="tipGive">Give now</button>`;
+  const g=GIVE;if(!g)return hideTip();const early=g[0].due>Date.now();
+  const more=pendingDoses().length-(early?0:g.length);
+  tip.innerHTML=`<b>${early?`Meds due at ${fmtClock(g[0].due)}`:`The fish need their ${fmtClock(g[0].due)} meds`}</b><ul>${g.map(d=>`<li>${esc(d.name)}</li>`).join('')}</ul>${more>0?`<p style="margin:0 0 6px;font-size:12px;color:var(--soft)">+${more} more due after these</p>`:''}<p style="margin:0;font-size:12.5px;color:var(--soft)">${matchMedia('(hover:hover)').matches?'Click':'Tap'} the fish to give ${g.length>1?'them':'it'}.</p>`;
   tip.hidden=false;
   const w=tip.offsetWidth,h=tip.offsetHeight;
   tip.style.left=Math.max(12,Math.min(innerWidth-w-12,x-w/2))+'px';
@@ -316,10 +315,9 @@ function showTip(x,y,sticky){
   clearTimeout(tipTimer);tipTimer=sticky?setTimeout(hideTip,6000):null;
 }
 function hideTip(){tip.hidden=true;clearTimeout(tipTimer);tipTimer=null}
-tip.addEventListener('click',e=>{if(e.target.id==='tipGive'){const g=dueGroup();if(g){unlockAudio();tone(660,990,.18,.18);giveDoses(g)}hideTip()}});
 function drawMeds(t){
   pillBubble=null;
-  if(SICK&&S.fish.length){const f=S.fish.reduce((a,b)=>fishLen(b)>fishLen(a)?b:a),L=fishLen(f),bob=Math.sin(t*1.6)*3*U;
+  if(GIVE&&S.fish.length){const f=S.fish.reduce((a,b)=>fishLen(b)>fishLen(a)?b:a),L=fishLen(f),bob=Math.sin(t*1.6)*3*U;
     const bx=f.x+Math.sign(f.dir||1)*L*.45,by=f.y-L*.95+bob;
     c.fillStyle='rgba(255,255,255,.85)';
     [[.0,.0,3.5],[.22,-.3,6]].forEach(([dx,dy,r])=>{c.beginPath();c.arc(f.x+Math.sign(f.dir||1)*L*(.22+dx),f.y-L*(.42-dy),r*U,0,7);c.fill()});
@@ -687,7 +685,7 @@ let down=null;
 cv.addEventListener('pointerdown',e=>{
   down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,t:performance.now(),dist:0};wake();poke();unlockAudio();
   if(bubble&&Math.hypot(e.clientX-bubble.x,e.clientY-bubble.y)<bubble.r*1.05){down.popped=true;popBubble();return}
-  if(sickFishAt(e.clientX,e.clientY)){down.popped=true;showTip(e.clientX,e.clientY,true);return}
+  if(sickFishAt(e.clientX,e.clientY)){down.med=true;if(e.pointerType!=='mouse')down.hold=setTimeout(()=>{if(down&&down.med){down.held=true;showTip(down.x,down.y,true)}},450);return}
   hideTip();
 });
 cv.addEventListener('pointermove',e=>{
@@ -700,8 +698,8 @@ cv.addEventListener('pointermove',e=>{
   }
   down.lx=e.clientX;down.ly=e.clientY;
 });
-const up=e=>{if(down&&down.popped){down=null;return}if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
-cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',()=>down=null);
+const up=e=>{if(down&&down.med){clearTimeout(down.hold);if(!down.held&&down.dist<28)giveNow();down=null;return}if(down&&down.popped){down=null;return}if(down&&down.dist<28&&performance.now()-down.t<600){feed(down.x);hideHint()}else if(down&&down.dist>=28){hideHint()}down=null};
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',()=>{if(down)clearTimeout(down.hold);down=null});
 
 /* ---------- UI ---------- */
 const hud=document.getElementById('hud'),stats=document.getElementById('stats'),panel=document.getElementById('panel'),toastEl=document.getElementById('toast'),hint=document.getElementById('hint');
@@ -738,7 +736,7 @@ function renderMeds(){
   const days=[];for(let i=0;i<7;i++){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);days.push(d.getTime())}
   const wk=S.medLog.filter(d=>now-d.due<7*864e5),done=wk.filter(d=>d.given).length,miss=wk.filter(d=>d.missed).length;
   const chip=d=>d.given?`<span class="chip ok">✓ ${esc(d.name)} ${fmtClock(d.given)}</span>`:d.missed?`<span class="chip miss">✗ ${esc(d.name)} missed</span>`:`<span class="chip wait">… ${esc(d.name)} ${fmtClock(d.due)}</span>`;
-  box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish. Take yours, then tap 💊 to give theirs. Stays on this iPad only.</p>`+
+  box.innerHTML=`<h3>Your meds</h3><p class="sub">When a dose is due the fish get sluggish and one thinks of a pill. Take yours, then tap that fish to give theirs (hold it to see which meds). Stays on this iPad only.</p>`+
   S.meds.map((m,i)=>`<div class="mrow mrow4"><input data-mi="${i}" data-mk="name" value="${esc(m.name)}" maxlength="28" placeholder="Medicine" aria-label="Medicine name"><input type="time" data-mi="${i}" data-mk="time" value="${esc(m.time)}" aria-label="Dose time"><select data-mi="${i}" data-mk="day" aria-label="Which days">${DAYS.map((n,k)=>`<option value="${k-1}"${(m.day==null?-1:+m.day)===k-1?' selected':''}>${n}</option>`).join('')}</select><button class="x" data-mdel="${i}" aria-label="Remove dose">×</button></div>`).join('')+
   `<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="add" id="addMed">Add a med</button><button class="add" id="impMed">Import setup code</button></div><div id="impBox" hidden><textarea id="impText" rows="3" placeholder="Paste the AQMEDS: setup code here" style="width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:8px;-webkit-user-select:text;user-select:text"></textarea><button class="add" id="impGo">Replace my med list with this</button><p class="stat err" id="impErr"></p></div>`+
   (S.meds.length?`<div class="mlog">${done+miss?`Last 7 days: <b style="color:var(--ink)">${Math.round(done/(done+miss)*100)}%</b> given (${done} of ${done+miss}).`:'No doses logged yet.'}`+
