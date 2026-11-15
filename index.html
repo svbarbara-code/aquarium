@@ -42,6 +42,14 @@ button:active{transform:scale(.97)}
 .help{font-size:12.5px;color:var(--soft);margin-top:10px;line-height:1.55}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translate(-50%,20px);padding:12px 20px;font-size:15px;opacity:0;transition:opacity .4s,transform .4s;pointer-events:none;white-space:nowrap}
 #toast.on{opacity:1;transform:translate(-50%,0)}
+#meal{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 70px);transform:translate(-50%,-10px);padding:12px 22px;font-size:16px;text-align:center;opacity:0;transition:opacity .6s,transform .6s;pointer-events:none;background:rgba(6,22,40,.7)}
+#meal.on{opacity:1;transform:translate(-50%,0)}
+#meal small{display:block;font-size:12.5px;color:var(--soft);margin-top:2px}
+.meals h3{font-size:15px;font-weight:600;margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--line)}
+.mrow{display:grid;grid-template-columns:1fr 110px 34px;gap:8px;margin:6px 0}
+.meals input{font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:7px 10px;width:100%;-webkit-user-select:text;user-select:text;color-scheme:dark}
+.meals .x{padding:0;border-radius:10px}
+.meals .add{margin-top:6px;font-size:13px;padding:7px 14px}
 #hint{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translateX(-50%);padding:10px 18px;font-size:14px;color:var(--soft);transition:opacity 1s;pointer-events:none}
 </style>
 </head>
@@ -51,7 +59,8 @@ button:active{transform:scale(.97)}
   <div id="stats" class="glass"></div>
   <button id="fishBtn">Fish</button>
 </div>
-<div id="panel" class="glass" hidden></div>
+<div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div></div>
+<div id="meal" class="glass"></div>
 <div id="hint" class="glass">Tap to feed · swipe across the glass to clean</div>
 <div id="toast" class="glass"></div>
 <script>
@@ -61,7 +70,9 @@ const Q = new URLSearchParams(location.search);
 const SIM = Math.max(1, +Q.get('speed') || 1);          // test: ?speed=360 → 1 real second = 6 sim minutes
 const HOUR_OVERRIDE = Q.has('hour') ? +Q.get('hour') : null; // test: ?hour=22
 const KEY = 'aquarium.v1';
-const RATE = { hunger: 4.5, dirt: 1.4, pelletDirt: 1.3, growth: 1/96 }; // per sim hour; growth = 4 good days to full size
+const DEFAULT_MEALS = [{label:'Breakfast',time:'08:00'},{label:'Lunch',time:'12:30'},{label:'Snack',time:'16:00'},{label:'Dinner',time:'19:30'}];
+const MEAL_HUNGER = 15;   // at each meal time every fish drops to this "full" level
+const RATE = { hunger: 1.5, dirt: 1.4, pelletDirt: 1.3, growth: 1/96 }; // per sim hour; growth = 4 good days to full size
 
 const SPECIES = {
   goldfish:{label:'Goldfish',  len:46,h:.60,top:'#c9561c',mid:'#f39a3c',belly:'#ffe2ad',fin:'#f6a85a',finA:.72,tail:'fan', dorsal:'mid',  pattern:'scales',speed:.8, band:[.22,.68]},
@@ -113,6 +124,35 @@ function simulate(h){
 function catchUp(){
   let hrs=Math.min((Date.now()-S.last)/36e5*SIM, 24*14);
   while(hrs>0){const step=Math.min(.25,hrs);simulate(step);hrs-=step}
+}
+if(!S.meals)S.meals=DEFAULT_MEALS.map(m=>({...m}));
+if(!S.mealCheck)S.mealCheck=Date.now();
+
+/* ---------- meal times: the fish get hungry when you're meant to eat ---------- */
+function mealOccurrences(from,to){
+  const out=[];const d=new Date(from);d.setHours(0,0,0,0);
+  for(;d.getTime()<=to;d.setDate(d.getDate()+1)){
+    for(const m of S.meals){
+      const[hh,mm]=(m.time||'').split(':').map(Number);if(isNaN(hh))continue;
+      const t=new Date(d);t.setHours(hh,mm||0,0,0);const ts=t.getTime();
+      if(ts>from&&ts<=to)out.push({label:m.label||'Meal',at:ts});
+    }
+  }
+  return out.sort((a,b)=>a.at-b.at);
+}
+function checkMeals(){
+  const now=Date.now(),occ=mealOccurrences(S.mealCheck,now);S.mealCheck=now;
+  if(!occ.length)return;
+  for(const f of S.fish)f.full=Math.min(f.full,MEAL_HUNGER);
+  S.mealNow=occ[occ.length-1];save();
+}
+function nextMeal(){const n=Date.now();return mealOccurrences(n,n+864e5*2)[0]}
+const mealEl=document.getElementById('meal');
+function renderMealBanner(){
+  const m=S.mealNow,avg=S.fish.reduce((a,f)=>a+f.full,0)/S.fish.length;
+  const on=m&&Date.now()-m.at<2*36e5&&avg<55;
+  if(on){mealEl.innerHTML=`${esc(m.label)} time! Your fish are hungry, and so are you.<small>Go eat something, then tap the water to feed them.</small>`;if(!S.seen)hint.style.opacity=0}
+  mealEl.classList.toggle('on',!!on&&panel.hidden);
 }
 function mood(f){
   if(f.full<20) return ['Hungry','var(--bad)'];
@@ -227,6 +267,7 @@ function spawn(f,fromTop){
 let school={x:0,y:0,tx:0,ty:0,timer:0};
 function pickTarget(f){
   const s=SPECIES[f.sp];
+  if(f.full<25){f.tx=W*(.25+Math.random()*.5);f.ty=H*(.08+Math.random()*.07);f.timer=1.5+Math.random()*2;return} // begging at the surface
   if(s.school){f.tx=school.x+(Math.random()-.5)*90*U;f.ty=school.y+(Math.random()-.5)*50*U}
   else{f.tx=W*.08+Math.random()*W*.84;f.ty=H*(s.band[0]+Math.random()*(s.band[1]-s.band[0]))}
   f.timer=3+Math.random()*6;
@@ -354,7 +395,7 @@ function frame(now){
   const dt=Math.min(.05,(now-lastT)/1000);lastT=now;const t=now/1000;
   simulate(dt/3600*SIM);saveClock+=dt;uiClock+=dt;
   if(saveClock>5){saveClock=0;save()}
-  if(uiClock>1){uiClock=0;renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
+  if(uiClock>1){uiClock=0;checkMeals();renderMealBanner();renderStats();if(!panel.hidden)renderPanel();while(queuedToasts.length)toast(queuedToasts.shift())}
   const light=lightLevel();update(dt,t,light);draw(t,light);
   requestAnimationFrame(frame);
 }
@@ -476,35 +517,51 @@ function renderStats(){
   stats.innerHTML=`<span><span class="dot" style="background:${wc}"></span>Water <b>${water}%</b></span><span><span class="dot" style="background:${fc}"></span>Fed <b>${Math.round(avg)}%</b></span><span>Fish <b>${S.fish.length}</b></span>`;
 }
 function bar(v,col){return `<div class="bar"><i style="width:${Math.round(v)}%;background:${col}"></i></div>`}
+function fmtClock(ts){const d=new Date(ts);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false})}
 function renderPanel(){
-  const nu=nextUnlock();
-  panel.innerHTML=`<h2>Your fish</h2><p class="sub">Feed them a little a few times a day and keep the glass clean. Happy tanks earn new species.</p>`+
+  const nu=nextUnlock(),nm=nextMeal();
+  document.getElementById('fishList').innerHTML=`<h2>Your fish</h2><p class="sub">Your fish get hungry at your meal times. When they beg at the surface, go eat, then feed them. Well-fed fish in clean water grow and earn new species.</p>`+
   S.fish.map(f=>{const[m,mc]=mood(f);return `<div class="fish"><div class="nm">${esc(f.name)}<small>${SPECIES[f.sp].label}</small><button class="rn" data-id="${f.id}">rename</button></div><div class="mood" style="color:${mc}">${m}</div>
   <div class="bars"><span>Full</span>${bar(f.full,f.full>50?'var(--good)':f.full>20?'var(--warn)':'var(--bad)')}<span>Grown</span>${bar(f.growth*100,'#8fc7ff')}</div></div>`}).join('')+
-  `<div class="next">${nu?`Next arrival: <b style="color:var(--ink)">${SPECIES[nu.sp].label}</b> after ${fmtH(nu.at-S.care)} more of happy tank time.`:'You have every species so far. More are coming.'}<br>Happy tank time so far: ${fmtH(S.care)}.</div>
-  <div class="help">Tap the water to drop food. Swipe across the glass to wipe algae. Fish get hungry over real time, even while the app is closed, but they never die: a hungry fish just looks pale and slows down.</div>`;
+  `<div class="next">${nm?`Next meal: <b style="color:var(--ink)">${esc(nm.label)}</b> at ${fmtClock(nm.at)}.<br>`:''}${nu?`Next arrival: <b style="color:var(--ink)">${SPECIES[nu.sp].label}</b> after ${fmtH(nu.at-S.care)} more of happy tank time.`:'You have every species so far. More are coming.'}<br>Happy tank time so far: ${fmtH(S.care)}.</div>
+  <div class="help">Tap the water to drop food. Swipe across the glass to wipe algae. Fish never die: a hungry fish just looks pale and slows down.</div>`;
+}
+function renderMeals(){
+  document.getElementById('mealsBox').innerHTML=`<h3>Your meal times</h3><p class="sub">The fish get hungry at each of these.</p>`+
+  S.meals.map((m,i)=>`<div class="mrow"><input data-i="${i}" data-k="label" value="${esc(m.label)}" maxlength="20" aria-label="Meal name"><input type="time" data-i="${i}" data-k="time" value="${esc(m.time)}" aria-label="Meal time"><button class="x" data-del="${i}" aria-label="Remove meal">×</button></div>`).join('')+
+  `<button class="add" id="addMeal">Add a meal</button>`;
 }
 function esc(s){return String(s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))}
 panel.addEventListener('click',e=>{
-  const id=e.target.dataset&&e.target.dataset.id;if(!id)return;
+  const t=e.target;
+  if(t.id==='addMeal'){S.meals.push({label:'Meal',time:'10:00'});save();renderMeals();return}
+  if(t.dataset&&t.dataset.del!=null){S.meals.splice(+t.dataset.del,1);save();renderMeals();renderPanel();return}
+  const id=t.dataset&&t.dataset.id;if(!id)return;
   const f=S.fish.find(x=>x.id===id);const n=prompt('New name for '+f.name,f.name);
   if(n&&n.trim()){f.name=n.trim().slice(0,24);save();renderPanel()}
 });
-document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden)renderPanel();poke()});
+panel.addEventListener('change',e=>{
+  const t=e.target;if(t.dataset.i==null)return;
+  const m=S.meals[+t.dataset.i];if(!m)return;
+  m[t.dataset.k]=t.value.trim()||(t.dataset.k==='label'?'Meal':m.time);
+  S.meals.sort((a,b)=>a.time.localeCompare(b.time));
+  S.mealCheck=Date.now();save();renderMeals();renderPanel();
+});
+document.getElementById('fishBtn').addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){renderPanel();renderMeals()}renderMealBanner();poke()});
 let toastTimer;
 function toast(msg){toastEl.textContent=msg;toastEl.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.classList.remove('on'),4500)}
 
 /* ---------- keep the screen on ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock'in navigator&&!lock&&document.visibilityState==='visible'){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();wake()}else save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){catchUp();checkMeals();wake()}else save()});
 addEventListener('pagehide',save);
 
 /* ---------- start ---------- */
-catchUp();
+catchUp();checkMeals();
 addEventListener('resize',resize);resize();
 school.x=W/2;school.y=H*.45;
-renderStats();poke();
+renderStats();renderMealBanner();poke();
 setTimeout(()=>{while(queuedToasts.length)toast(queuedToasts.shift())},800);
 requestAnimationFrame(frame);
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
