@@ -50,6 +50,11 @@ button:active{transform:scale(.97)}
 .mlog .day b{width:58px;font-weight:500;color:var(--ink)}
 .chip{padding:2px 8px;border-radius:9px;font-size:11.5px}
 .chip.ok{background:rgba(127,224,176,.16);color:var(--good)}.chip.miss{background:rgba(255,138,122,.16);color:var(--bad)}.chip.wait{background:rgba(255,201,107,.16);color:var(--warn)}
+#tip{position:fixed;z-index:5;max-width:280px;padding:12px 14px;font-size:14px;line-height:1.35;background:rgba(40,20,60,.82);border-color:rgba(255,190,240,.45)}
+#tip[hidden]{display:none}
+#tip b{display:block;font-size:12px;font-weight:500;color:var(--soft);margin-bottom:4px}
+#tip ul{margin:0 0 8px;padding-left:18px}
+#tip button{font-size:13px;padding:7px 14px}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translate(-50%,20px);padding:12px 20px;font-size:15px;opacity:0;transition:opacity .4s,transform .4s;pointer-events:none;white-space:nowrap}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 #meal{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 70px);transform:translate(-50%,-10px);padding:12px 22px;font-size:16px;text-align:center;opacity:0;transition:opacity .6s,transform .6s;pointer-events:none;background:rgba(6,22,40,.7)}
@@ -72,6 +77,7 @@ button:active{transform:scale(.97)}
 </div>
 <div id="panel" class="glass" hidden><div id="fishList"></div><div id="mealsBox" class="meals"></div><div id="medBox" class="meals"></div><div id="calBox" class="meals"></div></div>
 <button id="medBtn" hidden></button>
+<div id="tip" class="glass" hidden></div>
 <div id="meal" class="glass"></div>
 <div id="hint" class="glass">Tap to feed · swipe across the glass to clean</div>
 <div id="toast" class="glass"></div>
@@ -271,7 +277,7 @@ function checkMeds(){
 function pendingDoses(){return S.medLog.filter(d=>!d.given&&!d.missed).sort((a,b)=>a.due-b.due)}
 function overdueDose(){const n=Date.now();return S.medLog.some(d=>!d.given&&!d.missed&&n-d.due>2*36e5)}
 function upcomingDose(){const n=Date.now(),have=new Set(S.medLog.map(d=>d.id));return medOccurrences(n,n+MED_EARLY).find(o=>!have.has(o.id))}
-let capsule=null,sparks=[];
+let capsule=null,sparks=[],SICK=false,pillBubble=null,tipTimer=null;
 function giveDoses(list){
   const now=Date.now();
   for(const d of list){if(!S.medLog.includes(d))S.medLog.push(d);d.given=now;d.missed=false}
@@ -292,7 +298,35 @@ function renderMedBtn(){
   medBtn._doses=group;
 }
 medBtn.addEventListener('click',()=>{const g=medBtn._doses;if(g&&g.length){poke();unlockAudio();tone(660,990,.18,.18);giveDoses(g)}});
+const tip=document.getElementById('tip');
+function dueGroup(){const p=pendingDoses().filter(d=>d.due<=Date.now());return p.length?p.filter(d=>d.due===p[0].due):null}
+function sickFishAt(x,y){
+  if(!SICK)return false;
+  if(pillBubble&&Math.hypot(x-pillBubble.x,y-pillBubble.y)<pillBubble.r)return true;
+  return S.fish.some(f=>Math.hypot(x-f.x,y-f.y)<Math.max(22*U,fishLen(f)*.6));
+}
+function showTip(x,y,sticky){
+  const g=dueGroup();if(!g)return hideTip();
+  const more=pendingDoses().filter(d=>d.due<=Date.now()).length-g.length;
+  tip.innerHTML=`<b>The fish need their ${fmtClock(g[0].due)} meds</b><ul>${g.map(d=>`<li>${esc(d.name)}</li>`).join('')}</ul>${more>0?`<p style="margin:0 0 8px;font-size:12px;color:var(--soft)">+${more} more due after these</p>`:''}<button id="tipGive">Give now</button>`;
+  tip.hidden=false;
+  const w=tip.offsetWidth,h=tip.offsetHeight;
+  tip.style.left=Math.max(12,Math.min(innerWidth-w-12,x-w/2))+'px';
+  tip.style.top=Math.max(12,y-h-24<12?y+28:y-h-24)+'px';
+  clearTimeout(tipTimer);tipTimer=sticky?setTimeout(hideTip,6000):null;
+}
+function hideTip(){tip.hidden=true;clearTimeout(tipTimer);tipTimer=null}
+tip.addEventListener('click',e=>{if(e.target.id==='tipGive'){const g=dueGroup();if(g){unlockAudio();tone(660,990,.18,.18);giveDoses(g)}hideTip()}});
 function drawMeds(t){
+  pillBubble=null;
+  if(SICK&&S.fish.length){const f=S.fish.reduce((a,b)=>fishLen(b)>fishLen(a)?b:a),L=fishLen(f),bob=Math.sin(t*1.6)*3*U;
+    const bx=f.x+Math.sign(f.dir||1)*L*.45,by=f.y-L*.95+bob;
+    c.fillStyle='rgba(255,255,255,.85)';
+    [[.0,.0,3.5],[.22,-.3,6]].forEach(([dx,dy,r])=>{c.beginPath();c.arc(f.x+Math.sign(f.dir||1)*L*(.22+dx),f.y-L*(.42-dy),r*U,0,7);c.fill()});
+    c.beginPath();c.arc(bx,by,26*U,0,7);c.fill();pillBubble={x:bx,y:by,r:30*U};
+    c.save();c.translate(bx,by);c.rotate(-.5);const w=14*U,h=6.5*U;
+    c.fillStyle='#e05a9c';c.beginPath();c.roundRect?c.roundRect(-w,-h,w,h*2,h):c.rect(-w,-h,w,h*2);c.fill();
+    c.fillStyle='#6f52c9';c.beginPath();c.roundRect?c.roundRect(0,-h,w,h*2,h):c.rect(0,-h,w,h*2);c.fill();c.strokeStyle='rgba(40,20,60,.55)';c.lineWidth=1.2*U;c.beginPath();c.roundRect?c.roundRect(-w,-h,w*2,h*2,h):c.rect(-w,-h,w*2,h*2);c.stroke();c.fillStyle='rgba(255,255,255,.55)';c.fillRect(-w*.7,-h*.55,w*1.2,h*.35);c.restore()}
   for(const f of S.fish){if(!(f.glow>0))continue;const L=fishLen(f);
     for(let k=0;k<5;k++){const a=t*2.2+k*1.26+f.ph*.1;c.fillStyle=`rgba(255,215,245,${Math.min(1,f.glow/3)*.75})`;c.beginPath();c.arc(f.x+Math.cos(a)*L*.7,f.y+Math.sin(a)*L*.45,(1.6+Math.sin(t*6+k))*U+1,0,7);c.fill()}}
   for(const p of sparks){c.fillStyle=`hsla(${p.h},90%,80%,${p.life})`;c.beginPath();c.arc(p.x,p.y,p.r,0,7);c.fill()}
@@ -449,7 +483,7 @@ function drawFish(f,t,light){
   c.save();c.translate(f.x,f.y);
   const sx=Math.abs(f.dir)<.14?(f.dir<0?-.14:.14):f.dir;
   c.scale(sx,1);
-  c.rotate(Math.max(-.4,Math.min(.4,f.vy/(Math.abs(f.vx)+25*U)*.7)));
+  c.rotate(Math.max(-.4,Math.min(.4,f.vy/(Math.abs(f.vx)+25*U)*.7))+(SICK?.16:0));
   // soft shadow-ish depth
   // tail
   const [tl,th,notch]=TAILS[s.tail];const bx=-L*.42,TL=L*tl,TH=Hh*th*(s.tail==='veil'?1:1),wy=w*Hh*(s.tail==='veil'?.38:.22),sk=w*TL*.08;
@@ -489,6 +523,7 @@ function drawFish(f,t,light){
   gr.addColorStop(0,`rgba(255,255,255,${.22*light})`);gr.addColorStop(.35,'rgba(255,255,255,0)');gr.addColorStop(.8,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(0,0,0,.28)');
   c.fillStyle=gr;c.fillRect(-L,-Hh,L*2,Hh*2);
   // hunger pales the colours
+  if(SICK){c.fillStyle='rgba(150,175,150,.28)';c.fillRect(-L,-Hh,L*2,Hh*2)}
   if(f.full<30){c.fillStyle=`rgba(150,160,170,${(1-f.full/30)*.45})`;c.fillRect(-L,-Hh,L*2,Hh*2)}
   // gill
   c.strokeStyle='rgba(0,0,0,.22)';c.lineWidth=Math.max(.8,L*.012);
@@ -552,7 +587,7 @@ function update(dt,t,light){
   school.timer-=dt;
   if(school.timer<=0){school.tx=W*.15+Math.random()*W*.7;school.ty=H*(.3+Math.random()*.28);school.timer=6+Math.random()*6}
   school.x+=(school.tx-school.x)*dt*.25;school.y+=(school.ty-school.y)*dt*.25;
-  const night=.45+.55*light,sick=pendingDoses().some(d=>d.due<=Date.now())?.7:1;
+  SICK=pendingDoses().some(d=>d.due<=Date.now());const night=.45+.55*light,sick=SICK?.7:1;
   for(const f of S.fish){
     const s=SPECIES[f.sp],L=fishLen(f);
     let spd=s.speed*42*U*night*sick*(f.full<20?.6:1),tgt=null,best=1e9;
@@ -651,10 +686,12 @@ function draw(t,light){
 let down=null;
 cv.addEventListener('pointerdown',e=>{
   down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,t:performance.now(),dist:0};wake();poke();unlockAudio();
-  if(bubble&&Math.hypot(e.clientX-bubble.x,e.clientY-bubble.y)<bubble.r*1.05){down.popped=true;popBubble()}
+  if(bubble&&Math.hypot(e.clientX-bubble.x,e.clientY-bubble.y)<bubble.r*1.05){down.popped=true;popBubble();return}
+  if(sickFishAt(e.clientX,e.clientY)){down.popped=true;showTip(e.clientX,e.clientY,true);return}
+  hideTip();
 });
 cv.addEventListener('pointermove',e=>{
-  if(!down)return;
+  if(!down){if(e.pointerType==='mouse'){if(sickFishAt(e.clientX,e.clientY))showTip(e.clientX,e.clientY,false);else if(!tipTimer||tip.hidden)hideTip()}return}
   const d=Math.hypot(e.clientX-down.lx,e.clientY-down.ly);down.dist+=d;
   if(down.dist>28&&d>0&&!down.popped){
     S.dirt=Math.max(0,S.dirt-d/W*32);
