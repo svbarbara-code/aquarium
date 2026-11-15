@@ -1,0 +1,11 @@
+{
+  "name": "Aquarium",
+  "short_name": "Aquarium",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#04182e",
+  "theme_color": "#04182e",
+  "icons": [{"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}]
+}
