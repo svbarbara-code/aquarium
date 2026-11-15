@@ -609,9 +609,47 @@ function bodyPath(L,Hh){
   c.lineTo(-L*.44,Hh*.1);
   c.bezierCurveTo(-L*.18,Hh*.56,L*.42,Hh*.52,L*.5,Hh*.04);c.closePath();
 }
+/* ---------- drawn fish (Higgsfield line-art sprites, facing right) ----------
+   Each picture is trimmed to the fish, then drawn in thin vertical strips that wave like a swimming body. */
+const SPRITE_SRC={clownfish:'assets/fish-clownfish.png'};
+const SPRITES={};
+for(const k in SPRITE_SRC){const im=new Image();im.onload=()=>{SPRITES[k]=trimSprite(im)};im.src=SPRITE_SRC[k]}
+function trimSprite(im){                      // find the fish inside the transparent margin
+  const cv2=document.createElement('canvas');cv2.width=im.naturalWidth;cv2.height=im.naturalHeight;
+  const g=cv2.getContext('2d');g.drawImage(im,0,0);const d=g.getImageData(0,0,cv2.width,cv2.height).data;
+  let x0=cv2.width,y0=cv2.height,x1=0,y1=0;
+  for(let y=0;y<cv2.height;y+=2)for(let x=0;x<cv2.width;x+=2)if(d[(y*cv2.width+x)*4+3]>40){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+  if(x1<=x0)return null;
+  return {im,sx:x0,sy:y0,sw:x1-x0+2,sh:y1-y0+2};
+}
+const spriteBuf=document.createElement('canvas'),sbg=spriteBuf.getContext('2d');
+function drawFishSprite(f,sp,t,light){
+  const L=fishLen(f)*1.45,Hh=L*sp.sh/sp.sw,N=16,pad=Hh*.25;          // sprite includes tail and fins, so a bit longer than the body
+  const bw=Math.ceil(L*DPR)+4,bh=Math.ceil((Hh+pad*2)*DPR)+4;
+  if(spriteBuf.width<bw)spriteBuf.width=bw;if(spriteBuf.height<bh)spriteBuf.height=bh;
+  sbg.setTransform(DPR,0,0,DPR,0,0);sbg.clearRect(0,0,spriteBuf.width,spriteBuf.height);
+  const speed=Math.min(1.6,.4+Math.hypot(f.vx,f.vy)/(40*U));
+  for(let i=0;i<N;i++){                                                // strip 0 = tail (left), N-1 = head (right)
+    const u=i/(N-1),bend=Math.pow(1-u,1.8)*Hh*.13*speed,off=Math.sin(f.ph-u*2.6)*bend;
+    const sx=sp.sx+sp.sw*i/N,sw=sp.sw/N+1,dx=L*i/N,dw=L/N+.6;
+    sbg.drawImage(sp.im,sx,sp.sy,sw,sp.sh,dx,pad+off,dw,Hh);
+  }
+  // hunger, sickness and the meds glow tint only the fish
+  sbg.globalCompositeOperation='source-atop';
+  if(SICK){sbg.fillStyle='rgba(150,175,150,.30)';sbg.fillRect(0,0,L,Hh+pad*2)}
+  if(f.full<30){sbg.fillStyle=`rgba(150,160,170,${(1-f.full/30)*.5})`;sbg.fillRect(0,0,L,Hh+pad*2)}
+  if(light<1){sbg.fillStyle=`rgba(10,20,60,${(1-light)*.25})`;sbg.fillRect(0,0,L,Hh+pad*2)}
+  sbg.globalCompositeOperation='source-over';
+  c.save();c.translate(f.x,f.y);
+  const sxs=Math.abs(f.dir)<.14?(f.dir<0?-.14:.14):f.dir;c.scale(sxs,1);
+  c.rotate(Math.max(-.4,Math.min(.4,f.vy/(Math.abs(f.vx)+25*U)*.7))+(SICK?.16:0));
+  c.drawImage(spriteBuf,0,0,bw,bh,-L*.55,-Hh/2-pad,bw/DPR,bh/DPR);
+  c.restore();
+}
 function finFill(s,alpha){c.fillStyle=s.fin;c.globalAlpha=alpha}
 function fillFin(s,L){c.fill();if(s.finEdge){const a=c.globalAlpha;c.globalAlpha=1;c.strokeStyle=s.finEdge;c.lineWidth=Math.max(1,L*.024);c.stroke();c.globalAlpha=a}}
 function drawFish(f,t,light){
+  const sp=SPRITES[f.sp];if(sp){drawFishSprite(f,sp,t,light);return}
   const s=SPECIES[f.sp],L=fishLen(f),Hh=L*s.h,w=Math.sin(f.ph);
   if(!(L>4))return;
   c.save();c.translate(f.x,f.y);
